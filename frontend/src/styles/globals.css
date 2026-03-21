@@ -1,0 +1,128 @@
+@import "tailwindcss";
+@import "./animations.css";
+
+/* ── CSS Variables ─────────────────────────────────────────── */
+:root {
+  --bg-base:        #09090B;
+  --bg-surface:     #0F0F11;
+  --bg-raised:      #18181B;
+  --bg-subtle:      #1C1C1F;
+  --border:         #27272A;
+  --border-subtle:  #1C1C1F;
+  --border-strong:  #3F3F46;
+  --text-primary:   #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-muted:     #52525B;
+  --text-disabled:  #3F3F46;
+  --red:            #EF4444;
+  --red-muted:      rgba(239,68,68,0.12);
+  --amber:          #F59E0B;
+  --amber-muted:    rgba(245,158,11,0.12);
+  --emerald:        #10B981;
+  --emerald-muted:  rgba(16,185,129,0.12);
+  --blue:           #3B82F6;
+  --blue-muted:     rgba(59,130,246,0.12);
+  --font-sans: var(--font-geist);
+  --font-mono: var(--font-dm-mono);
+}
+
+/* ── Global Reset ──────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  cursor: none !important;
+}
+
+input, textarea, [contenteditable] {
+  cursor: text !important;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* ── Typography ───────────────────────────────────────────── */
+.font-mono { font-family: var(--font-mono), monospace; }
+.font-sans { font-family: var(--font-sans), system-ui, sans-serif; }
+
+/* ── Health Dots (CSS @keyframes — NOT Framer Motion) ──────── */
+.dot-healthy {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--emerald);
+  flex-shrink: 0;
+  animation: pulse-emerald 2s ease-in-out infinite;
+}
+.dot-warning {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex-shrink: 0;
+  animation: pulse-amber 1.2s ease-in-out infinite;
+}
+.dot-critical {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  animation: pulse-red 0.8s ease-in-out infinite;
+}
+.dot-unknown {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── Shimmer gradient on critical anomaly bars ─────────────── */
+.shimmer-bar {
+  background: linear-gradient(
+    90deg,
+    var(--red) 0%,
+    rgba(255, 100, 100, 0.9) 50%,
+    var(--red) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+/* ── Cursor blink for RCA streaming ───────────────────────── */
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* ── Tailwind layer overrides ──────────────────────────────── */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary);
+  }
+}
