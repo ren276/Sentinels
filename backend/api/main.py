@@ -86,8 +86,16 @@ async def lifespan(app: FastAPI):
     if settings.ENVIRONMENT == "development":
         try:
             from .seed import seed_database
-            await seed_database()
-            log.info("database.seeded")
+            from .database import AsyncSessionLocal
+            from sqlalchemy import text
+            async with AsyncSessionLocal() as _db:
+                result = await _db.execute(text("SELECT COUNT(*) FROM metrics"))
+                count = result.scalar()
+            if count<1000:
+                await seed_database()
+                log.info("database.seeded")
+            else:
+                log.info("seed.skipped_already_seeded", metric_rows=count)
         except Exception as exc:
             log.warning("seed.skipped", error=str(exc))
 

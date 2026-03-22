@@ -13,7 +13,7 @@ try {
 
 Write-Host "Starting required infrastructure..." -ForegroundColor Cyan
 cd "$PSScriptRoot\..\infra"
-docker-compose up -d postgres redis
+docker-compose up -d redis
 
 Write-Host "Waiting for database..."
 Start-Sleep -Seconds 3

@@ -1,24 +1,7 @@
-version: '3.8'
+
 
 services:
   # ── Core Infrastructure ────────────────────────────────
-  postgres:
-    image: postgres:15-alpine
-    container_name: sentinel-postgres
-    environment:
-      POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinelpassword
-      POSTGRES_DB: sentinel_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     container_name: sentinel-redis
@@ -107,14 +90,11 @@ services:
       - "8000:8000"
     environment:
       - ENVIRONMENT=development
-      - DATABASE_URL=postgresql+psycopg2://sentinel:sentinelpassword@postgres:5432/sentinel_db
       - REDIS_URL=redis://redis:6379/0
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_ENABLED=true
       - OTLP_ENDPOINT=http://jaeger:4317
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
@@ -134,7 +114,6 @@ services:
       - backend
 
 volumes:
-  postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:

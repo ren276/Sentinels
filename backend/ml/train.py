@@ -32,7 +32,7 @@ async def train_all_services(db) -> None:
 
 async def train_service(db, service_id: str) -> None:
     """Train all 4 model types for a service."""
-    from .anomaly import train_isolation_forest, train_lstm_ae
+    from .anomaly import train_isolation_forest, train_lstm_autoencoder
     from .forecast import train_prophet, train_arima
 
     log.info("train.service_started", service_id=service_id)
@@ -64,8 +64,27 @@ async def train_service(db, service_id: str) -> None:
 
 def _train_if_sync(service_id: str, df: pd.DataFrame) -> None:
     """Train Isolation Forest synchronously."""
-    from .anomaly import train_isolation_forest
-    train_isolation_forest(df, service_id)
+    from .anomaly import train_isolation_forest, FEATURE_NAMES
+
+    # Pivot long → wide and extract feature matrix
+    df_wide = df.pivot_table(
+        index="timestamp",
+        columns="metric_name",
+        values="value",
+        aggfunc="mean",
+    ).reset_index()
+
+    df_wide = df_wide.rename(columns={"error_rate": "error_rate_1m"})
+    for col in FEATURE_NAMES:
+        if col not in df_wide.columns:
+            df_wide[col] = 0.0
+
+    X = df_wide[FEATURE_NAMES].fillna(0).values
+    if len(X) < 10:
+        log.warning("train.if_insufficient", service_id=service_id)
+        return
+
+    train_isolation_forest(X, service_id)
     log.info("train.if_done", service_id=service_id)
 
 
@@ -76,6 +95,8 @@ def _train_prophet_sync(service_id: str, df: pd.DataFrame) -> None:
         for metric in ["cpu_usage", "p95_latency_ms"]:
             metric_df = df[df["metric_name"] == metric].copy() if "metric_name" in df.columns else df
             if len(metric_df) > 100:
+                metric_df = metric_df.copy()
+                metric_df["timestamp"] = pd.to_datetime(metric_df["timestamp"]).dt.tz_localize(None)
                 train_prophet(metric_df, metric, service_id)
         log.info("train.prophet_done", service_id=service_id)
     except Exception as exc:

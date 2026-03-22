@@ -103,11 +103,9 @@ async def _run_anomaly_detection() -> None:
 
 async def _detect_anomaly_for_service(db, service_id: str) -> None:
     """Run inference for a single service."""
-    from ml.anomaly import run_combined_inference
-    from pipeline.validation import validate_metric_batch
+    from ml.anomaly import run_combined_detection, FEATURE_NAMES
 
     try:
-        from observability.metrics import model_inference_duration
         metrics_data = await get_service_metrics(db, service_id, 60)
         if not metrics_data:
             return
@@ -117,30 +115,75 @@ async def _detect_anomaly_for_service(db, service_id: str) -> None:
         if df.empty:
             return
 
-        validation = validate_metric_batch(df, service_id)
-        if not validation.is_valid:
-            log.warning(
-                "anomaly_job.skipping_bad_data",
-                service_id=service_id,
-                errors=validation.errors,
-            )
+        # Pivot long → wide format
+        df_wide = df.pivot_table(
+            index="timestamp",
+            columns="metric_name",
+            values="value",
+            aggfunc="mean",
+        ).reset_index().sort_values("timestamp")
+
+        df_wide = df_wide.rename(columns={"error_rate": "error_rate_1m"})
+        for col in FEATURE_NAMES:
+            if col not in df_wide.columns:
+                df_wide[col] = 0.0
+
+        result = await run_combined_detection(service_id, df_wide)
+        if not result:
             return
 
-        with model_inference_duration.labels(
-            model_type="combined",
-            service_id=service_id,
-        ).time():
-            score = await run_combined_inference(service_id, df)
+        anomaly_score = result.get("anomaly_score", 0)
 
-        if score is not None and score > 0.7:
-            log.info(
-                "anomaly_job.detected",
-                service_id=service_id,
-                score=score,
-            )
+        if anomaly_score > 0.7:
+            log.info("anomaly_job.detected", service_id=service_id, score=anomaly_score)
+
+            # Save anomaly record
+            from .database import create_anomaly_record
+            await create_anomaly_record(db, {
+                "anomaly_id": result["anomaly_id"],
+                "service_id": service_id,
+                "anomaly_score": anomaly_score,
+                "anomaly_type": "combined",
+                "metric_name": "multi",
+                "features": result.get("features", {}),
+                "if_score": result.get("if_score", 0),
+                "lstm_score": result.get("lstm_score", 0),
+            })
+
+            # Auto-create incident
+            import uuid
+            from datetime import datetime, timezone
+            from .database import create_incident_record
+            from .websocket_manager import ws_manager
+
+            severity = "critical" if anomaly_score > 0.85 else "warning"
+            incident_id = str(uuid.uuid4())
+
+            await create_incident_record(db, {
+                "incident_id": incident_id,
+                "service_id": service_id,
+                "severity": severity,
+                "summary": f"Anomaly detected on {service_id}: score {anomaly_score:.2f}",
+                "status": "active",
+                "anomaly_score_at_trigger": anomaly_score,
+                "affected_services": [service_id],
+            })
+
+            # Broadcast to frontend
+            await ws_manager.broadcast({
+                "type": "incident_created",
+                "incident_id": incident_id,
+                "service_id": service_id,
+                "severity": severity,
+                "anomaly_score": anomaly_score,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+
+            log.info("incident.auto_created", incident_id=incident_id,
+                     service_id=service_id, severity=severity, score=anomaly_score)
+
     except ImportError:
-        pass  # ML not yet trained
-
+        pass
 
 async def forecast_job() -> None:
     """Generate 30-minute forecasts for all services."""
@@ -221,6 +264,9 @@ async def broadcast_metrics_job() -> None:
         from .websocket_manager import ws_manager
         from .database import AsyncSessionLocal, get_all_services
         from sqlalchemy import text
+        import json, random
+        from datetime import datetime, timezone
+        import redis.asyncio as aioredis
 
         async with AsyncSessionLocal() as db:
             services = await get_all_services(db)
@@ -228,23 +274,62 @@ async def broadcast_metrics_job() -> None:
         if not services:
             return
 
-        import random
-        from datetime import datetime, timezone
+        r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
-        for svc in services[:12]:  # Limit for performance
+        for svc in services[:12]:
             service_id = svc["service_id"]
-            # Send a lightweight metric update
+
+            # Check for active chaos events
+            chaos_latency = await r.get(f"chaos:{service_id}:latency_spike")
+            chaos_cpu     = await r.get(f"chaos:{service_id}:cpu_spike")
+            chaos_error   = await r.get(f"chaos:{service_id}:error_rate_spike")
+
+            cpu   = round(random.uniform(0.2, 0.7), 4)
+            mem   = round(random.uniform(0.4, 0.8), 4)
+            error = round(random.uniform(0, 0.01), 6)
+            p95   = round(random.uniform(80, 200), 2)
+            rps   = round(random.uniform(300, 600), 2)
+
+            if chaos_latency:
+                p95 = round(random.uniform(800, 2000), 2)
+            if chaos_cpu:
+                cpu = round(random.uniform(0.85, 0.99), 4)
+            if chaos_error:
+                error = round(random.uniform(0.08, 0.20), 6)
+
+            now = datetime.now(timezone.utc)
+
+            # Write metrics to DB so anomaly detection picks them up
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("""
+                    INSERT INTO metrics (service_id, metric_name, value, timestamp)
+                    VALUES 
+                        (:sid, 'cpu_usage', :cpu, :ts),
+                        (:sid, 'mem_usage', :mem, :ts),
+                        (:sid, 'error_rate', :error, :ts),
+                        (:sid, 'p95_latency_ms', :p95, :ts),
+                        (:sid, 'req_per_second', :rps, :ts)
+                """), {
+                    "sid": service_id, "cpu": cpu, "mem": mem,
+                    "error": error, "p95": p95, "rps": rps, "ts": now
+                })
+                await session.commit()
+
+            # Broadcast to WebSocket
             await ws_manager.broadcast({
                 "type": "metric_update",
                 "service_id": service_id,
                 "metrics": {
-                    "cpu_usage": round(random.uniform(0.2, 0.7), 4),
-                    "mem_usage": round(random.uniform(0.4, 0.8), 4),
-                    "error_rate": round(random.uniform(0, 0.01), 6),
-                    "p95_latency_ms": round(random.uniform(80, 200), 2),
-                    "req_per_second": round(random.uniform(300, 600), 2),
+                    "cpu_usage": cpu,
+                    "mem_usage": mem,
+                    "error_rate": error,
+                    "p95_latency_ms": p95,
+                    "req_per_second": rps,
                 },
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now.isoformat(),
             })
+
+        await r.aclose()
+
     except Exception as exc:
         log.error("broadcast_metrics_job.failed", error=str(exc))

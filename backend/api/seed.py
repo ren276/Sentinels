@@ -196,13 +196,13 @@ async def seed_database() -> None:
                     "score": anomaly_score,
                     "ifs": round(anomaly_score * 1.1, 4),
                     "lstms": round(anomaly_score * 0.9, 4),
-                    "ts": a_start.isoformat(),
+                    "ts": a_start,
                 })
 
                 status_map = {0: "active", 1: "acknowledged", 2: "resolved", 3: "active"}
                 inc_status = status_map[incident_count % 4]
-                resolved_at = (a_end + timedelta(hours=1)).isoformat() if inc_status == "resolved" else None
-                ack_at = (a_start + timedelta(minutes=10)).isoformat() if inc_status in ("acknowledged", "resolved") else None
+                resolved_at = (a_end + timedelta(hours=1)) if inc_status == "resolved" else None
+                ack_at = (a_start + timedelta(minutes=10)) if inc_status in ("acknowledged", "resolved") else None
 
                 await db.execute(text("""
                     INSERT INTO incidents
@@ -223,7 +223,7 @@ async def seed_database() -> None:
                     "status": inc_status,
                     "score": anomaly_score,
                     "affected": json.dumps([svc]),
-                    "created": a_start.isoformat(),
+                    "created": a_start,
                     "acked": ack_at,
                     "acked_by": "admin" if ack_at else None,
                     "resolved": resolved_at,
@@ -266,7 +266,7 @@ async def seed_database() -> None:
                         "pred": round(pred, 4),
                         "lo": round(pred * 0.9, 4),
                         "hi": round(pred * 1.1, 4),
-                        "ts": pred_ts.isoformat(),
+                        "ts": pred_ts,
                         "mae": round(random.uniform(5, 20), 4),
                         "wb": will_breach and pred > thresh,
                         "thresh": thresh,

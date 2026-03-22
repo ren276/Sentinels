@@ -87,19 +87,25 @@ def test_data_validation_rejects_out_of_range_metrics():
 # ── Anomaly Detection ─────────────────────────────────────────────────────────
 
 def test_isolation_forest_scores_normal_data_low():
-    """Normal data should score below 0.4 on IF."""
-    from ml.anomaly import IsolationForestModel
-    import sklearn
+    """Normal data should score below 0.8 on IF."""
+    from ml.anomaly import train_isolation_forest, score_isolation_forest, FEATURE_NAMES
 
     df = _make_metrics_df(n_rows=500)
-    model = IsolationForestModel()
-    model.fit(df, "test-svc")
+    
+    # Pivot to wide format
+    df_wide = df.pivot_table(
+        index="timestamp", columns="metric_name", values="value", aggfunc="mean"
+    ).reset_index()
+    df_wide = df_wide.rename(columns={"error_rate": "error_rate_1m"})
+    for col in FEATURE_NAMES:
+        if col not in df_wide.columns:
+            df_wide[col] = 0.0
+    X = df_wide[FEATURE_NAMES].fillna(0).values
 
-    # Score last 10 normal rows
-    normal_df = _make_metrics_df(n_rows=20)
-    score = model.score(normal_df, "test-svc")
-    assert score is not None
-    assert score < 0.8  # Normal data should not flag as highly anomalous
+    model, scaler, _ = train_isolation_forest(X, "test-svc", run_mlflow=False)
+    scores = score_isolation_forest(model, scaler, X[-10:])
+    assert scores is not None
+    assert float(scores.mean()) < 0.8
 
 
 def test_combined_score_weighted_correctly():

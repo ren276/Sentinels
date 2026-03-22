@@ -70,8 +70,13 @@ export default api
 
 export const apiClient = {
   // Auth
-  login: (username: string, password: string) =>
-    api.post('/api/v1/auth/login', { username, password }),
+  login: async (username: string, password: string) => {
+    const res = await api.post('/api/v1/auth/login', { username, password })
+    if (res.data?.access_token) {
+      document.cookie = `access_token=${res.data.access_token}; path=/; max-age=3600; SameSite=Lax`
+    }
+    return res
+  },
   logout: () => api.post('/api/v1/auth/logout'),
   me: () => api.get('/api/v1/auth/me'),
 

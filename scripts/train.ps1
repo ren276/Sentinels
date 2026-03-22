@@ -1,4 +1,4 @@
 $env:PYTHONPATH = "e:\Sentinels\backend"
 cd e:\Sentinels\backend
-poetry run python ml/train.py
+poetry run python -m ml.train
 Write-Host "ML models trained and registered to MLflow." -ForegroundColor Green
