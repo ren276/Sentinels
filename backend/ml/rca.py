@@ -93,7 +93,7 @@ async def generate_rca_stream(
     start = datetime.now(timezone.utc)
     try:
         stream = await ollama_client.chat.completions.create(
-            model=OLLAMA_MODEL,
+            model=settings.OLLAMA_MODEL,
             messages=[{
                 "role": "user",
                 "content": build_rca_prompt(service, anomaly_score, metrics, logs, graph),
@@ -180,17 +180,33 @@ async def rca_job_handler(
     job_key = f"rca:job:{incident_id}"
 
     try:
-        await redis_client.set(job_key, json.dumps({
+        log.info("rca_job.started", incident_id=incident_id, service_id=service_id)
+        
+        # Initial status update
+        initial_payload = {
             "status": "streaming",
-            "result": "Initializing Ollama analysis...",
+            "result": "Initializing Ollama analysis engine...",
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }), ex=3600)
+        }
+        await redis_client.set(job_key, json.dumps(initial_payload), ex=3600)
+        
+        from api.websocket_manager import ws_manager
+        await ws_manager.broadcast({
+            "type": "rca_update",
+            "incident_id": incident_id,
+            **initial_payload
+        })
 
+        log.debug("rca_job.gathering_context", service_id=service_id)
         metrics = await get_service_metrics_summary(service_id)
         logs = await get_recent_log_lines(service_id, 20)
         graph = await get_service_graph(service_id)
 
+        import time
         accumulated = ""
+        last_broadcast_time = 0
+        throttle_interval = 0.2  # 200ms throttle
+        
         async for chunk in generate_rca_stream(
             service=service_id,
             anomaly_score=anomaly_score,
@@ -199,17 +215,35 @@ async def rca_job_handler(
             graph=graph,
         ):
             accumulated += chunk
-            await redis_client.set(job_key, json.dumps({
-                "status": "streaming",
-                "result": accumulated,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }), ex=3600)
+            now = time.perf_counter()
+            
+            # Throttle broadcasts to avoid over-whelming frontend
+            if now - last_broadcast_time > throttle_interval:
+                payload = {
+                    "status": "streaming",
+                    "result": accumulated,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                await redis_client.set(job_key, json.dumps(payload), ex=3600)
+                await ws_manager.broadcast({
+                    "type": "rca_update",
+                    "incident_id": incident_id,
+                    **payload
+                })
+                last_broadcast_time = now
 
-        await redis_client.set(job_key, json.dumps({
+        final_payload = {
             "status": "done",
             "result": accumulated,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }), ex=3600)
+        }
+        await redis_client.set(job_key, json.dumps(final_payload), ex=3600)
+        
+        await ws_manager.broadcast({
+            "type": "rca_update",
+            "incident_id": incident_id,
+            **final_payload
+        })
 
     except Exception as exc:
         log.error("rca_job.failed", incident_id=incident_id, error=str(exc))

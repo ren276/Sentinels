@@ -22,7 +22,7 @@ Start-Sleep -Seconds 3
 cd "$PSScriptRoot\..\backend"
 
 Write-Host "Starting Backend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd `"$PSScriptRoot\..\backend`"; poetry run uvicorn api.main:app --reload --port 8000"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd `"$PSScriptRoot\..\backend`"; poetry run uvicorn api.main:app --reload --host 127.0.0.1 --port 8000 --reload-exclude mlruns"
 
 # Start Frontend
 cd "$PSScriptRoot\..\frontend"

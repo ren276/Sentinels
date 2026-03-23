@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/store/authStore'
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000',
+  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000',
   withCredentials: true,
   timeout: 10_000,
   headers: { 'Content-Type': 'application/json' },
@@ -102,6 +102,10 @@ export const apiClient = {
   // Alerts
   acknowledgeAlert: (incidentId: string, note?: string) =>
     api.post('/api/v1/alerts/acknowledge', { incident_id: incidentId, note }),
+  resolveIncident: (incidentId: string, note?: string) =>
+    api.post('/api/v1/incidents/resolve', { incident_id: incidentId, note }),
+  testSlackWebhook: (webhook_url: string) =>
+    api.post('/api/v1/slack/test', { webhook_url }),
 
   // Runbooks
   getRunbooks: () => api.get('/api/v1/runbooks'),
@@ -135,4 +139,39 @@ export const apiClient = {
   // Chaos (dev only)
   injectChaos: (service: string, type: string, duration_minutes = 15) =>
     api.post('/api/v1/chaos/inject', { service, type, duration_minutes }),
+
+  // Recent anomalies
+  getRecentAnomalies: (limit = 50) =>
+    api.get('/api/v1/anomalies/recent', { params: { limit } }),
+
+  // Feature 1 — Post-mortems
+  generatePostmortem: (incidentId: string) =>
+    api.post(`/api/v1/incidents/${incidentId}/postmortem/generate`),
+  getPostmortem: (incidentId: string) =>
+    api.get(`/api/v1/incidents/${incidentId}/postmortem`),
+  exportPostmortem: (incidentId: string) =>
+    api.get(`/api/v1/incidents/${incidentId}/postmortem/export`, { responseType: 'blob' }),
+
+  // Feature 2 — Deployments
+  createDeployment: (body: object) =>
+    api.post('/api/v1/deployments', body),
+  getDeployments: (limit = 50) =>
+    api.get('/api/v1/deployments', { params: { limit } }),
+  getServiceDeployments: (serviceId: string, limit = 20) =>
+    api.get(`/api/v1/services/${serviceId}/deployments`, { params: { limit } }),
+
+  // Feature 3 — SLOs
+  getSlos: (serviceId?: string) =>
+    api.get('/api/v1/slos', { params: serviceId ? { service_id: serviceId } : undefined }),
+  createSlo: (body: object) =>
+    api.post('/api/v1/slos', body),
+  deleteSlo: (sloId: string) =>
+    api.delete(`/api/v1/slos/${sloId}`),
+  getSloHistory: (sloId: string, days = 30) =>
+    api.get(`/api/v1/slos/${sloId}/history`, { params: { days } }),
+
+  // Feature 4 — Anomaly explanation
+  getAnomalyExplanation: (anomalyId: string) =>
+    api.get(`/api/v1/anomalies/${anomalyId}/explanation`),
 }
+

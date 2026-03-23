@@ -82,8 +82,18 @@ async def route_alert(
     # Slack (optional)
     try:
         from api.config import settings
-        if hasattr(settings, "SLACK_WEBHOOK_URL") and settings.SLACK_WEBHOOK_URL:
-            await _send_slack_alert(alert_data, settings.SLACK_WEBHOOK_URL)
+        from alerting.slack import send_slack_alert
+        if settings.SLACK_ENABLED and settings.SLACK_WEBHOOK_URL:
+            # We mock the incident dict structure for the standardized alert
+            incident_mock = {
+                "incident_id": incident_id,
+                "service_id": service_id,
+                "severity": severity,
+                "anomaly_score_at_trigger": anomaly_score,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "summary": f"Alert routed via legacy router for {service_id}",
+            }
+            await send_slack_alert(incident_mock, {})
     except Exception as exc:
         log.warning("alert.slack.failed", error=str(exc))
 
@@ -96,29 +106,6 @@ async def route_alert(
         log.warning("alert.email.failed", error=str(exc))
 
     return True
-
-
-async def _send_slack_alert(alert_data: dict, webhook_url: str) -> None:
-    """Send Slack notification via webhook."""
-    severity = alert_data["severity"]
-    color_map = {"critical": "#EF4444", "warning": "#F59E0B", "info": "#3B82F6"}
-    color = color_map.get(severity, "#8B8B8B")
-
-    payload = {
-        "text": f"[{severity.upper()}] {alert_data['service_id']}",
-        "attachments": [{
-            "color": color,
-            "fields": [
-                {"title": "Service", "value": alert_data["service_id"], "short": True},
-                {"title": "Score", "value": f"{alert_data['anomaly_score']:.2f}", "short": True},
-                {"title": "Incident", "value": alert_data["incident_id"], "short": True},
-                {"title": "Time", "value": alert_data["timestamp"], "short": True},
-            ],
-        }],
-    }
-
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        await client.post(webhook_url, json=payload)
 
 
 async def _send_email_alert(alert_data: dict) -> None:

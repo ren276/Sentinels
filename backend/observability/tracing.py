@@ -4,7 +4,6 @@ OpenTelemetry distributed tracing with Jaeger export.
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from api.config import settings
 
@@ -16,6 +15,7 @@ def setup_tracing(app) -> None:
     """Setup OpenTelemetry with Jaeger exporter."""
     try:
         from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         exporter = JaegerExporter(
             agent_host_name=settings.JAEGER_HOST,
             agent_port=settings.JAEGER_PORT,

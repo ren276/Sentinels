@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useCallback } from 'react'
 import { useWsStore } from '@/store/wsStore'
+import { useAuthStore } from '@/store/authStore'
 import type { WsEvent } from '@/types'
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]
@@ -9,13 +10,28 @@ export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const reconnectAttempt = useRef(0)
+  const { user } = useAuthStore()
   const { setConnected, addAnomaly, addIncident, updateRca, updateMetrics } = useWsStore()
 
   const connect = useCallback(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL
-    if (!wsUrl) return
+    const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws/live'
+    
+    // Get token from cookie
+    let token = ''
+    if (typeof document !== 'undefined') {
+      const match = document.cookie.match(/access_token=([^;]+)/)
+      if (match) token = match[1]
+    }
+
+    if (!token) {
+      console.warn('[WS] No access token found in cookies. Aborting connection.')
+      setConnected(false)
+      return
+    }
 
     try {
+      console.log('[WS] Connecting to:', baseWsUrl)
+      const wsUrl = `${baseWsUrl}?token=${token}`
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
@@ -25,7 +41,7 @@ export function useWebSocket() {
         // Ping every 30s
         pingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }))
+            ws.send('ping')
           }
         }, 30_000)
       }
@@ -33,9 +49,12 @@ export function useWebSocket() {
       ws.onmessage = (ev) => {
         try {
           const event: WsEvent = JSON.parse(ev.data)
-          if ((event as { type: string }).type === 'pong') return
-
           switch (event.type) {
+            case 'pong':
+              return
+            case 'ping':
+              ws.send('ping')
+              break
             case 'anomaly_detected':
               addAnomaly(event)
               break
@@ -56,11 +75,21 @@ export function useWebSocket() {
       }
 
       ws.onclose = () => {
+        // Only attempt reconnect if this is still the active connection
+        if (wsRef.current !== ws) return
+
         setConnected(false)
         if (pingRef.current) clearInterval(pingRef.current)
+        
         const delay = RECONNECT_DELAYS[Math.min(reconnectAttempt.current, RECONNECT_DELAYS.length - 1)]
         reconnectAttempt.current++
-        setTimeout(connect, delay)
+        
+        setTimeout(() => {
+          // Check again before reconnecting
+          if (wsRef.current === ws) {
+             connect()
+          }
+        }, delay)
       }
 
       ws.onerror = () => {
@@ -69,7 +98,7 @@ export function useWebSocket() {
     } catch {
       setConnected(false)
     }
-  }, [setConnected, addAnomaly, addIncident, updateRca, updateMetrics])
+  }, [user, setConnected, addAnomaly, addIncident, updateRca, updateMetrics])
 
   useEffect(() => {
     connect()

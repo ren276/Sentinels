@@ -46,9 +46,32 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
     RATE_LIMIT_DEFAULT: str = "100/minute"
+    ALLOW_SELF_SIGNUP: bool = False
+
+    # OAuth
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    GITHUB_ENABLED: bool = False
+
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_ENABLED: bool = False
+
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_CLIENT_SECRET: str = ""
+    MICROSOFT_TENANT_ID: str = "common"
+    MICROSOFT_ENABLED: bool = False
+
+    OAUTH_REDIRECT_BASE_URL: str = "http://localhost:8000"
 
     # Notifications (optional)
     SLACK_WEBHOOK_URL: str = ""
+    SLACK_ENABLED: bool = False
+    SLACK_CHANNEL: str = "#incidents"
+    SLACK_BOT_NAME: str = "Sentinel"
+    SLACK_MENTION_ON_CRITICAL: str = ""
+    
+    SMTP_ENABLED: bool = False
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 465
     SMTP_FROM: str = ""

@@ -161,4 +161,101 @@ export interface WsRcaUpdate {
   result: string
 }
 
-export type WsEvent = WsAnomalyEvent | WsIncidentEvent | WsMetricUpdate | WsRcaUpdate
+export interface WsPingEvent {
+  type: 'ping'
+}
+
+export interface WsPongEvent {
+  type: 'pong'
+}
+
+export type WsEvent = WsAnomalyEvent | WsIncidentEvent | WsMetricUpdate | WsRcaUpdate | WsPingEvent | WsPongEvent
+
+// ─── Feature types ─────────────────────────────────────────────────────────
+
+export interface PostMortem {
+  id: string
+  incident_id: string
+  generated_by: string
+  status: 'generating' | 'done' | 'error' | 'not_started'
+  content: string
+  impact_duration_minutes: number | null
+  affected_services: string[]
+  timeline_events: Array<{ timestamp: string; event: string }>
+  created_at: string
+  updated_at: string
+}
+
+export interface PostMortemStatus {
+  status: 'not_started' | 'generating' | 'done' | 'error'
+  content: string
+  postmortem_id?: string
+  updated_at?: string
+}
+
+export interface Deployment {
+  deployment_id: string
+  service_id: string
+  service_name?: string
+  version: string
+  previous_version: string | null
+  deployed_by: string
+  environment: string
+  status: 'success' | 'failed' | 'rollback'
+  commit_hash: string | null
+  deploy_notes: string | null
+  deployed_at: string
+  correlated_anomaly_count?: number
+}
+
+export interface Slo {
+  slo_id: string
+  service_id: string
+  name: string
+  metric_name: string
+  target_value: number
+  comparison: 'less_than' | 'greater_than'
+  window_days: number
+  is_active: boolean
+  created_at: string
+  created_by: string
+  // Compliance fields (merged in list endpoint)
+  compliance_pct?: number
+  error_budget_remaining_pct?: number
+  error_budget_consumed_minutes?: number
+  good_minutes?: number
+  bad_minutes?: number
+  data_points?: number
+}
+
+export interface SloSnapshot {
+  id: number
+  slo_id: string
+  compliance_pct: number
+  error_budget_remaining_pct: number
+  error_budget_consumed_minutes: number
+  good_minutes: number
+  bad_minutes: number
+  snapshot_at: string
+  window_start: string | null
+  window_end: string | null
+}
+
+export interface ShapValue {
+  feature: string
+  value: number
+  shap_value: number
+  direction: 'positive' | 'negative'
+}
+
+export interface AnomalyExplanation {
+  anomaly_id: string
+  has_explanation: boolean
+  top_contributor?: string
+  if_score?: number
+  lstm_score?: number
+  combined_score?: number
+  explanation: ShapValue[]
+  feature_values?: Record<string, number>
+}
+

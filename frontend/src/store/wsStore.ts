@@ -22,13 +22,31 @@ export const useWsStore = create<WsStore>((set) => ({
   liveMetrics: {},
   setConnected: (v) => set({ connected: v }),
   addAnomaly: (event) =>
-    set((state) => ({
-      latestAnomalies: [event, ...state.latestAnomalies.slice(0, 49)],
-    })),
+    set((state) => {
+      // Avoid duplicate keys in UI by checking if this exact anomaly was already added
+      const exists = state.latestAnomalies.some(
+        (a) => a.service_id === event.service_id && a.detected_at === event.detected_at
+      )
+      if (exists) return state
+      return {
+        latestAnomalies: [event, ...state.latestAnomalies.slice(0, 49)],
+      }
+    }),
   addIncident: (event) =>
-    set((state) => ({
-      latestIncidents: [event, ...state.latestIncidents.slice(0, 49)],
-    })),
+    set((state) => {
+      // If incident exists, update it instead of adding a new one (prevents duplicate keys)
+      const exists = state.latestIncidents.some((i) => i.incident_id === event.incident_id)
+      if (exists) {
+        return {
+          latestIncidents: state.latestIncidents.map((i) =>
+            i.incident_id === event.incident_id ? event : i
+          ),
+        }
+      }
+      return {
+        latestIncidents: [event, ...state.latestIncidents.slice(0, 49)],
+      }
+    }),
   updateRca: (incidentId, update) =>
     set((state) => ({
       rcaUpdates: { ...state.rcaUpdates, [incidentId]: update },

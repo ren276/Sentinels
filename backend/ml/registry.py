@@ -45,10 +45,16 @@ def get_champion_model(service_id: str, model_type: str):
             return None
         run_id = runs[0].info.run_id
         model_uri = f"runs:/{run_id}/model"
+        
         if model_type == "isolation_forest":
-            return mlflow.sklearn.load_model(model_uri)
+            scaler_uri = f"runs:/{run_id}/scaler"
+            m = mlflow.sklearn.load_model(model_uri)
+            s = mlflow.sklearn.load_model(scaler_uri)
+            return m, s
         elif model_type == "lstm_ae":
-            return mlflow.keras.load_model(model_uri)
+            m = mlflow.keras.load_model(model_uri)
+            t = runs[0].data.metrics.get("reconstruction_threshold", 1.0)
+            return m, t
         elif model_type in ("prophet", "arima"):
             return mlflow.pyfunc.load_model(model_uri)
         return None

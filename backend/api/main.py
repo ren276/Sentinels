@@ -12,11 +12,33 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import sys
 from typing import Optional, Any
+import logging
 
 import httpx
 import redis.asyncio as aioredis
 import structlog
+
+# ─── LOGGING CONFIGURATION ───
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.dev.set_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        # Use dev.ConsoleRenderer for better visibility in powershell/terminal
+        structlog.dev.ConsoleRenderer(
+            colors=True if sys.stdout.isatty() else False,
+            pad_event=40,
+        )
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=True,
+)
 from fastapi import (
     Depends, FastAPI, HTTPException, Query, Request,
     WebSocket, WebSocketDisconnect, status
@@ -31,7 +53,7 @@ from slowapi.util import get_remote_address
 from .config import settings
 from .database import (
     AsyncSessionLocal, init_db,
-    get_db, get_user_by_username, get_user_by_id,
+    get_db, get_user_by_username, get_user_by_id, get_user_by_email, create_oauth_user,
     get_all_services, get_service_by_id,
     get_service_metrics, get_service_anomalies,
     get_incidents, get_incident_by_id,
@@ -42,6 +64,17 @@ from .database import (
     create_incident_record, get_all_users,
     get_all_service_ids, get_recent_anomalies,
     DEFAULT_PLATFORM_SETTINGS,
+    # Feature 1 — Post-mortems
+    get_postmortem_from_db, save_postmortem,
+    get_incident_timeline, get_metrics_during_incident,
+    # Feature 2 — Deployments
+    save_deployment, get_service_deployments, get_all_deployments,
+    get_anomalies_after, tag_anomaly_with_deployment,
+    # Feature 3 — SLOs
+    save_slo, get_all_active_slos, set_slo_inactive,
+    save_slo_snapshot, get_slo_snapshots, calculate_slo_compliance,
+    # Feature 4 — Anomaly Explanation
+    get_anomaly_by_id,
 )
 from .security import (
     SecurityHeadersMiddleware, Token, User,
@@ -52,6 +85,9 @@ from .security import (
     verify_password, verify_token, oauth2_scheme,
 )
 from .websocket_manager import ws_manager
+from fastapi.responses import Response as FastAPIResponse, RedirectResponse
+from .oauth import oauth
+from uuid import uuid4 as _uuid4
 
 log = structlog.get_logger()
 
@@ -156,6 +192,13 @@ if settings.PROMETHEUS_ENABLED:
         log.warning("prometheus.init_skipped", error=str(exc))
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.JWT_SECRET_KEY
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -186,6 +229,11 @@ class AcknowledgeRequest(BaseModel):
     note: Optional[str] = None
 
 
+class ResolveRequest(BaseModel):
+    incident_id: str
+    note: Optional[str] = None
+
+
 class RunbookExecuteRequest(BaseModel):
     incident_id: Optional[str] = None
     dry_run: bool = True
@@ -210,6 +258,17 @@ class UpdateUserRequest(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class MonitoredUrlCreate(BaseModel):
+    name: str
+    url: str
+    expected_status_code: int = 200
+    timeout_seconds: int = 5
+
+
+class SlackTestRequest(BaseModel):
+    webhook_url: str
 
 
 # ─── Health & observability ───────────────────────────────────────────────────
@@ -337,6 +396,112 @@ async def get_me(current_user: User = Depends(get_current_active_user)) -> User:
     return current_user
 
 
+# ─── OAuth endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/api/auth/{provider}", tags=["auth"])
+async def oauth_login(
+    request: Request,
+    provider: str,
+) -> RedirectResponse:
+    if provider not in ["github", "google", "microsoft"]:
+        raise HTTPException(400, "Unknown provider")
+    if not getattr(settings, f"{provider.upper()}_ENABLED"):
+        raise HTTPException(
+            400, f"{provider} OAuth not configured"
+        )
+    redirect_uri = (
+        f"{settings.OAUTH_REDIRECT_BASE_URL}"
+        f"/api/auth/{provider}/callback"
+    )
+    client = oauth.create_client(provider)
+    return await client.authorize_redirect(
+        request, redirect_uri
+    )
+
+@app.get("/api/auth/{provider}/callback", tags=["auth"])
+async def oauth_callback(
+    request: Request,
+    provider: str,
+) -> RedirectResponse:
+    if provider not in ["github", "google", "microsoft"]:
+        raise HTTPException(400, "Unknown provider")
+    client = oauth.create_client(provider)
+    token = await client.authorize_access_token(request)
+
+    # Get user info from provider
+    if provider == "github":
+        resp = await client.get(
+            "user", token=token
+        )
+        userinfo = resp.json()
+        email = userinfo.get("email")
+        if not email:
+            resp_email = await client.get("user/emails", token=token)
+            emails = resp_email.json()
+            primary_emails = [e["email"] for e in emails if e.get("primary")]
+            if primary_emails:
+                email = primary_emails[0]
+            elif emails:
+                email = emails[0]["email"]
+        username = userinfo.get("login")
+        name = userinfo.get("name", username)
+    else:
+        userinfo = token.get("userinfo", {})
+        email = userinfo.get("email")
+        username = email.split("@")[0] if email else None
+        name = userinfo.get("name", username)
+
+    if not email:
+        return RedirectResponse(
+            "/login?error=no_email"
+        )
+
+    async for db in get_db():
+        # Find or create user
+        user = await get_user_by_email(db, email)
+        if not user:
+            if not settings.ALLOW_SELF_SIGNUP:
+                return RedirectResponse(
+                    "/login?error=signup_disabled"
+                )
+            # Create new user
+            user = await create_oauth_user(
+                db=db,
+                username=username or email.split("@")[0],
+                email=email,
+                name=name,
+                provider=provider,
+                role="viewer",  # default role
+            )
+
+        if not user["is_active"]:
+            return RedirectResponse(
+                "/login?error=account_inactive"
+            )
+
+        # Create tokens
+        token_data = {
+            "sub": user["username"],
+            "role": user["role"],
+        }
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token(token_data)
+
+        # Redirect to frontend with tokens as cookies
+        response = RedirectResponse(url="/")
+        response.set_cookie(
+            "access_token", access_token,
+            httponly=True, samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+        response.set_cookie(
+            "refresh_token", refresh_token,
+            httponly=True, samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        )
+        return response
+
+
 # ─── SERVICES ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/v1/services", tags=["services"])
@@ -348,6 +513,92 @@ async def list_services(
     async for db in get_db():
         services = await get_all_services(db)
         return services
+
+
+@app.get("/api/v1/monitored-urls", tags=["services"])
+@limiter.limit("100/minute")
+async def list_monitored_urls(
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+):
+    async for db in get_db():
+        from sqlalchemy import text
+        result = await db.execute(text("SELECT * FROM monitored_urls ORDER BY created_at DESC"))
+        return [dict(r) for r in result.mappings().all()]
+
+
+@app.post("/api/v1/monitored-urls", tags=["services"])
+@limiter.limit("20/minute")
+async def add_monitored_url(
+    request: Request,
+    body: MonitoredUrlCreate,
+    current_user: User = Depends(require_operator),
+):
+    import uuid
+    from sqlalchemy import text
+    _id = f"url_{uuid.uuid4().hex[:8]}"
+    service_id = f"http-{uuid.uuid4().hex[:8]}"
+    async for db in get_db():
+        await db.execute(text("""
+            INSERT INTO monitored_urls (id, service_id, name, url, expected_status_code, timeout_seconds, created_by)
+            VALUES (:id, :sid, :name, :url, :esc, :ts, :cb)
+        """), {
+            "id": _id, "sid": service_id, "name": body.name, "url": body.url,
+            "esc": body.expected_status_code, "ts": body.timeout_seconds, "cb": current_user.username
+        })
+        await db.commit()
+    return {"status": "created", "id": _id, "service_id": service_id}
+
+
+@app.delete("/api/v1/monitored-urls/{url_id}", tags=["services"])
+@limiter.limit("20/minute")
+async def delete_monitored_url(
+    request: Request,
+    url_id: str,
+    current_user: User = Depends(require_operator),
+):
+    from sqlalchemy import text
+    async for db in get_db():
+        await db.execute(text("DELETE FROM monitored_urls WHERE id = :id"), {"id": url_id})
+        await db.commit()
+    return {"status": "deleted"}
+
+
+@app.post("/api/v1/slack/test", tags=["Integrations"])
+@limiter.limit("10/minute")
+async def test_slack(
+    request: Request,
+    body: SlackTestRequest,
+    current_user: User = Depends(require_operator),
+):
+    from alerting.slack import test_slack_webhook
+    result = await test_slack_webhook(body.webhook_url)
+    if not result["success"]:
+        raise HTTPException(
+            400,
+            f"Webhook test failed: {result.get('error', 'Unknown error')}"
+        )
+    return {"success": True, "message": "Test sent"}
+
+
+@app.post("/api/v1/slack/test-alert", tags=["Integrations"])
+@limiter.limit("5/minute")
+async def test_slack_alert(
+    request: Request,
+    current_user: User = Depends(require_operator),
+):
+    from alerting.slack import send_slack_alert
+    from datetime import datetime, timezone
+    fake_incident = {
+        "incident_id": "test-001",
+        "service_id": "sentinel-api",
+        "severity": "critical",
+        "summary": "Test alert from Sentinel",
+        "anomaly_score_at_trigger": 0.92,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await send_slack_alert(fake_incident, {}, "This is a test RCA message from Sentinel.")
+    return {"status": "sent"}
 
 
 @app.get("/api/v1/services/{service_id}", tags=["services"])
@@ -457,6 +708,8 @@ async def trigger_rca_generation(
         service_id = incident["service_id"]
         anomaly_score = incident.get("anomaly_score_at_trigger", 0.75)
 
+        log.info("rca.trigger_requested", incident_id=incident_id, service_id=service_id)
+        
         loop = asyncio.get_event_loop()
         loop.create_task(_rca_job_handler(
             incident_id,
@@ -471,6 +724,7 @@ async def _rca_job_handler(
     service_id: str,
     anomaly_score: float,
 ) -> None:
+    log.info("rca.job_entry", incident_id=incident_id)
     """
     Background RCA job.
     Called ONLY via: loop.create_task(_rca_job_handler(a, b, c))
@@ -534,7 +788,119 @@ async def acknowledge_alert(
         return {"status": "acknowledged"}
 
 
-# ─── RUNBOOKS ────────────────────────────────────────────────────────────────
+@app.post("/api/v1/incidents/resolve", tags=["incidents"])
+@limiter.limit("50/minute")
+async def resolve_incident(
+    request: Request,
+    body: ResolveRequest,
+    current_user: User = Depends(require_operator),
+):
+    async for db in get_db():
+        incident = await get_incident_by_id(db, body.incident_id)
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        
+        from sqlalchemy import text
+        from datetime import datetime, timezone
+        
+        # Calculate duration
+        created_at = incident["created_at"]
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        
+        now = datetime.now(timezone.utc)
+        duration_min = int((now - created_at).total_seconds() / 60)
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("""
+                    UPDATE incidents SET
+                        status = 'resolved',
+                        resolved_at = :now,
+                        resolved_by = :user,
+                        resolution_note = :note,
+                        duration_minutes = :dur
+                    WHERE incident_id = :iid
+                """),
+                {
+                    "user": current_user.username, 
+                    "note": body.note, 
+                    "iid": body.incident_id,
+                    "now": now,
+                    "dur": duration_min
+                }
+            )
+            await session.commit()
+        
+        await write_audit_log(db, current_user.user_id, "incident.resolve",
+                              "incident", body.incident_id)
+        
+        # Trigger Slack Notification
+        try:
+            from alerting.slack import send_slack_resolution
+            incident_update = {
+                **incident,
+                "status": "resolved",
+                "resolution_note": body.note,
+                "duration_minutes": duration_min
+            }
+            await send_slack_resolution(incident_update)
+        except Exception as e:
+            log.warning("slack_resolve.failed", error=str(e))
+
+        await ws_manager.broadcast({
+            "type": "incident_updated",
+            "incident_id": body.incident_id,
+            "status": "resolved",
+        })
+        return {"status": "resolved", "duration_minutes": duration_min}
+
+
+@app.post("/api/v1/incidents/{incident_id}/comments", tags=["incidents"])
+async def add_incident_comment(
+    request: Request,
+    incident_id: str,
+    body: dict,
+    current_user: User = Depends(get_current_active_user),
+):
+    comment_text = body.get("comment")
+    if not comment_text:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text("""
+                INSERT INTO incident_comments (incident_id, user_id, username, comment)
+                VALUES (:iid, :uid, :uname, :txt)
+            """),
+            {"iid": incident_id, "uid": str(current_user.user_id), "uname": current_user.username, "txt": comment_text}
+        )
+        await session.commit()
+    
+    await ws_manager.broadcast({
+        "type": "incident_updated",
+        "incident_id": incident_id,
+        "new_comment": True
+    })
+    return {"status": "comment_added"}
+
+
+@app.get("/api/v1/incidents/{incident_id}/comments", tags=["incidents"])
+async def get_incident_comments(
+    request: Request,
+    incident_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("SELECT username, comment, created_at FROM incident_comments WHERE incident_id = :iid ORDER BY created_at ASC"),
+            {"iid": incident_id}
+        )
+        rows = result.all()
+        return [{"username": r[0], "comment": r[1], "created_at": r[2]} for r in rows]
 
 RUNBOOKS = {
     "high_cpu": {
@@ -889,14 +1255,17 @@ async def websocket_endpoint(websocket: WebSocket):
     # Auth via query param token
     token = websocket.query_params.get("token")
     if not token:
+        log.warning("ws.auth_failed.no_token")
         await websocket.close(code=4001)
         return
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         if not payload.get("sub"):
+            log.warning("ws.auth_failed.no_sub")
             await websocket.close(code=4001)
             return
-    except Exception:
+    except Exception as exc:
+        log.warning("ws.auth_failed.invalid_token", error=str(exc))
         await websocket.close(code=4001)
         return
 
@@ -904,14 +1273,26 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             try:
+                # 35s timeout to catch disconnected clients without heartbeats
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=35.0)
+                
+                # Handle control messages
                 if data == "ping":
-                    await websocket.send_text("pong")
+                    await websocket.send_json({"type": "pong"})
+                    continue
+                
+                # In this app, client doesn't send data yet, but we'll log it if they do
+                log.debug("ws.message_received", data=data[:100])
+                
             except asyncio.TimeoutError:
+                # Proactively ping the client if they've been silent
                 try:
-                    await websocket.send_text("ping")
+                    await websocket.send_json({"type": "ping"})
                 except Exception:
                     break
+            except Exception as exc:
+                log.error("ws.read_failed", error=str(exc))
+                break
     except WebSocketDisconnect:
         pass
     finally:
@@ -938,3 +1319,314 @@ async def get_recent_anomalies_endpoint(
 ):
     async for db in get_db():
         return await get_recent_anomalies(db, limit)
+
+
+# ─── POSTMORTEM endpoints ─────────────────────────────────────────────────────
+
+@app.post("/api/v1/incidents/{incident_id}/postmortem/generate", tags=["postmortem"])
+@limiter.limit("5/minute")
+async def trigger_postmortem_generation(
+    request: Request,
+    incident_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, str]:
+    """Trigger post-mortem generation. NO body. Same pattern as /rca/generate."""
+    async for db in get_db():
+        incident = await get_incident_by_id(db, incident_id)
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if incident["status"] != "resolved":
+            raise HTTPException(
+                status_code=400,
+                detail="Post-mortems can only be generated for resolved incidents",
+            )
+        loop = asyncio.get_event_loop()
+        loop.create_task(_postmortem_job_dispatch(
+            incident_id,
+            current_user.username,
+        ))
+        return {
+            "status": "generating",
+            "message": "Post-mortem generation started",
+        }
+
+
+async def _postmortem_job_dispatch(incident_id: str, generated_by: str) -> None:
+    try:
+        from ml.postmortem import postmortem_job_handler
+        await postmortem_job_handler(incident_id, generated_by)
+    except Exception as exc:
+        log.error("postmortem_dispatch.failed", incident_id=incident_id, error=str(exc))
+
+
+@app.get("/api/v1/incidents/{incident_id}/postmortem", tags=["postmortem"])
+@limiter.limit("60/minute")
+async def get_postmortem(
+    request: Request,
+    incident_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    r = await aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    job_key = f"postmortem:job:{incident_id}"
+    try:
+        job_data = await r.get(job_key)
+        if not job_data:
+            async for db in get_db():
+                pm = await get_postmortem_from_db(db, incident_id)
+                if pm:
+                    return {
+                        "status": "done",
+                        "content": pm["content"],
+                        "postmortem_id": pm["id"],
+                    }
+                return {"status": "not_started", "content": ""}
+        return json.loads(job_data)
+    finally:
+        await r.aclose()
+
+
+@app.get("/api/v1/incidents/{incident_id}/postmortem/export", tags=["postmortem"])
+async def export_postmortem(
+    request: Request,
+    incident_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> FastAPIResponse:
+    async for db in get_db():
+        pm = await get_postmortem_from_db(db, incident_id)
+        if not pm:
+            raise HTTPException(status_code=404, detail="Post-mortem not found")
+        filename = f"postmortem-{incident_id}.md"
+        return FastAPIResponse(
+            content=pm["content"],
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+
+# ─── DEPLOYMENT endpoints ─────────────────────────────────────────────────────
+
+class DeploymentCreateRequest(BaseModel):
+    service_id: str
+    version: str
+    previous_version: Optional[str] = None
+    deployed_by: str
+    environment: str = "production"
+    status: str = "success"
+    commit_hash: Optional[str] = None
+    deploy_notes: Optional[str] = None
+    deployed_at: Optional[datetime] = None
+
+
+@app.post("/api/v1/deployments", tags=["deployments"])
+@limiter.limit("30/minute")
+async def create_deployment(
+    request: Request,
+    body: DeploymentCreateRequest,
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    deployment_id = f"dep-{_uuid4().hex[:8]}"
+    deployed_at = body.deployed_at or datetime.now(timezone.utc)
+
+    async for db in get_db():
+        # Validate service exists first
+        svc = await get_service_by_id(db, body.service_id)
+        if not svc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Service '{body.service_id}' does not exist. Please use a valid service ID."
+            )
+
+        nearby_anomalies = await get_anomalies_after(
+            db, body.service_id, deployed_at, window_minutes=30,
+        )
+
+        await save_deployment(db, {
+            "deployment_id": deployment_id,
+            "service_id": body.service_id,
+            "version": body.version,
+            "previous_version": body.previous_version,
+            "deployed_by": body.deployed_by,
+            "environment": body.environment,
+            "status": body.status,
+            "commit_hash": body.commit_hash,
+            "deploy_notes": body.deploy_notes,
+            "deployed_at": deployed_at,
+        })
+
+        for anomaly in nearby_anomalies:
+            det = anomaly.get("detected_at")
+            if det:
+                if isinstance(det, str):
+                    det = datetime.fromisoformat(det.replace("Z", "+00:00"))
+                if det.tzinfo is None:
+                    det = det.replace(tzinfo=timezone.utc)
+                dp = deployed_at
+                if dp.tzinfo is None:
+                    dp = dp.replace(tzinfo=timezone.utc)
+                minutes_after = int((det - dp).total_seconds() / 60)
+                await tag_anomaly_with_deployment(
+                    db, anomaly["anomaly_id"], deployment_id, minutes_after,
+                )
+
+        await ws_manager.broadcast({
+            "type": "deployment_created",
+            "deployment_id": deployment_id,
+            "service_id": body.service_id,
+            "version": body.version,
+            "deployed_at": deployed_at.isoformat(),
+        })
+
+        log.info(
+            "deployment.created",
+            deployment_id=deployment_id,
+            service_id=body.service_id,
+            version=body.version,
+            nearby_anomalies=len(nearby_anomalies),
+        )
+
+        return {
+            "deployment_id": deployment_id,
+            "correlated_anomalies": len(nearby_anomalies),
+            "message": f"Deployment registered. {len(nearby_anomalies)} nearby anomalies found.",
+        }
+
+
+@app.get("/api/v1/services/{service_id}/deployments", tags=["deployments"])
+@limiter.limit("100/minute")
+async def get_deployments_for_service(
+    request: Request,
+    service_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
+) -> list[dict[str, Any]]:
+    async for db in get_db():
+        return await get_service_deployments(db, service_id, limit)
+
+
+@app.get("/api/v1/deployments", tags=["deployments"])
+@limiter.limit("100/minute")
+async def list_all_deployments(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(get_current_active_user),
+) -> list[dict[str, Any]]:
+    async for db in get_db():
+        return await get_all_deployments(db, limit)
+
+
+# ─── SLO endpoints ────────────────────────────────────────────────────────────
+
+class SloCreateRequest(BaseModel):
+    service_id: str
+    name: str
+    metric_name: str
+    target_value: float
+    comparison: str = "less_than"
+    window_days: int = 30
+
+
+@app.get("/api/v1/slos", tags=["slos"])
+@limiter.limit("100/minute")
+async def list_slos(
+    request: Request,
+    service_id: Optional[str] = Query(default=None),
+    current_user: User = Depends(get_current_active_user),
+) -> list[dict[str, Any]]:
+    async for db in get_db():
+        slos = await get_all_active_slos(db, service_id)
+        result = []
+        for slo in slos:
+            compliance = await calculate_slo_compliance(db, slo)
+            result.append({**slo, **compliance})
+        return result
+
+
+@app.get("/api/v1/slos/{slo_id}/history", tags=["slos"])
+@limiter.limit("100/minute")
+async def get_slo_history(
+    request: Request,
+    slo_id: str,
+    days: int = Query(default=30, ge=1, le=365),
+    current_user: User = Depends(get_current_active_user),
+) -> list[dict[str, Any]]:
+    async for db in get_db():
+        return await get_slo_snapshots(db, slo_id, days)
+
+
+@app.post("/api/v1/slos", tags=["slos"])
+@limiter.limit("20/minute")
+async def create_slo(
+    request: Request,
+    body: SloCreateRequest,
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    slo_id = f"slo-{_uuid4().hex[:8]}"
+    async for db in get_db():
+        await save_slo(db, {
+            "slo_id": slo_id,
+            "service_id": body.service_id,
+            "name": body.name,
+            "metric_name": body.metric_name,
+            "target_value": body.target_value,
+            "comparison": body.comparison,
+            "window_days": body.window_days,
+            "created_by": current_user.username,
+        })
+        return {"slo_id": slo_id, "status": "created"}
+
+
+@app.delete("/api/v1/slos/{slo_id}", tags=["slos"])
+async def deactivate_slo(
+    request: Request,
+    slo_id: str,
+    current_user: User = Depends(require_admin),
+) -> dict[str, str]:
+    async for db in get_db():
+        await set_slo_inactive(db, slo_id)
+        return {"status": "deactivated"}
+
+
+# ─── ANOMALY EXPLANATION endpoint ─────────────────────────────────────────────
+
+@app.get("/api/v1/anomalies/{anomaly_id}/explanation", tags=["anomalies"])
+@limiter.limit("100/minute")
+async def get_anomaly_explanation(
+    request: Request,
+    anomaly_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    async for db in get_db():
+        anomaly = await get_anomaly_by_id(db, anomaly_id)
+        if not anomaly:
+            raise HTTPException(status_code=404, detail="Anomaly not found")
+
+        features = anomaly.get("features") or {}
+        if isinstance(features, str):
+            try:
+                features = json.loads(features)
+            except Exception:
+                features = {}
+
+        explanation = features.get("shap_explanation", [])
+
+        if not explanation:
+            return {
+                "anomaly_id": anomaly_id,
+                "has_explanation": False,
+                "feature_values": {
+                    k: v for k, v in features.items()
+                    if k not in ("shap_explanation", "top_contributor")
+                },
+                "explanation": [],
+            }
+
+        return {
+            "anomaly_id": anomaly_id,
+            "has_explanation": True,
+            "top_contributor": features.get("top_contributor", "unknown"),
+            "if_score": anomaly.get("if_score"),
+            "lstm_score": anomaly.get("lstm_score"),
+            "combined_score": anomaly.get("anomaly_score"),
+            "explanation": explanation,
+        }
+

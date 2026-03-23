@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Area, ComposedChart, ResponsiveContainer, Tooltip } from 'recharts'
@@ -144,4 +144,3 @@ export default function ForecastsPage() {
   )
 }
 
-import { useMemo } from 'react'

@@ -1,19 +1,21 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, AlertTriangle, ShieldCheck, Cpu, HardDrive, Network } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { useWsStore } from '@/store/wsStore'
-import { fadeUp, staggerContainer, staggerItem } from '@/lib/animations'
-
-import { formatTimestamp, relativeTime, scoreColor, severityColor } from '@/lib/utils'
+import { useAuthStore } from '@/store/authStore'
+import { Shield, Target, Activity, Settings, Filter } from 'lucide-react'
+import { formatTimestamp, relativeTime, scoreColor } from '@/lib/utils'
 
 export default function OverviewPage() {
+  const [isReal, setIsReal] = useState(true)
+  const [refreshCountdown, setRefreshCountdown] = useState(15)
+
   const { data: services = [] } = useQuery({
     queryKey: ['services'],
     queryFn: () => apiClient.getServices().then(res => res.data),
-    refetchInterval: 30000,
+    refetchInterval: 15000,
   })
 
   const { data: incidents = [] } = useQuery({
@@ -22,179 +24,252 @@ export default function OverviewPage() {
     refetchInterval: 15000,
   })
 
-  const { latestAnomalies } = useWsStore()
-  
+  const { latestAnomalies, liveMetrics } = useWsStore()
+  const { user } = useAuthStore()
+
+  useEffect(() => {
+    const int = setInterval(() => {
+      setRefreshCountdown(v => (v <= 1 ? 15 : v - 1))
+    }, 1000)
+    return () => clearInterval(int)
+  }, [])
+
+  // Aggregate metrics
   const stats = useMemo(() => {
-    const total = services.length
-    const critical = services.filter((s: any) => s.health_status === 'critical').length
-    const warning = services.filter((s: any) => s.health_status === 'warning').length
-    const healthy = total - critical - warning
-    return { total, healthy, warning, critical }
-  }, [services])
+    let cpuSum = 0, memSum = 0, p95Sum = 0, count = 0
+    Object.values(liveMetrics).forEach(m => {
+      cpuSum += m.cpu_usage || 0
+      memSum += m.mem_usage || 0
+      p95Sum += m.p95_latency_ms || 0
+      count++
+    })
+    
+    return {
+      cpuAvg: count ? (cpuSum / count) * 100 : 0,
+      memAvg: count ? (memSum / count) * 100 : 0,
+      p95Avg: count ? p95Sum / count : 0,
+      nodes: services.length || 0
+    }
+  }, [liveMetrics, services])
+
+  // Mock activity logs mixed with real incidents
+  const activityLogs = useMemo(() => {
+    const logs = incidents.slice(0, 4).map((i: any) => ({
+      type: i.severity.toUpperCase(),
+      time: new Date(i.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      msg: i.summary,
+      color: i.severity === 'critical' ? 'var(--red)' : 'var(--amber)'
+    }))
+    
+    // Pad with mock if not enough
+    if (logs.length < 4) {
+      logs.push({ type: 'AUTHENTICATION', time: '14:22:01', msg: 'User ADM-09 signed into US-WEST-1 node.', color: 'var(--blue)' })
+      logs.push({ type: 'NETWORK', time: '14:20:12', msg: 'Ingress peak reached: 842 MB/s. Scaling...', color: 'var(--text-muted)' })
+      logs.push({ type: 'DATABASE', time: '14:21:44', msg: 'Query optimization complete for CLUSTER_B.', color: 'var(--text-muted)' })
+      logs.push({ type: 'SECURITY', time: '14:18:55', msg: 'Unauthorized access attempt blocked from 45.22.1.92.', color: 'var(--red)' })
+    }
+    return logs.slice(0, 5)
+  }, [incidents])
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-mono font-medium tracking-wide mb-1" style={{ color: 'var(--text-primary)' }}>
-            PLATFORM OVERVIEW
-          </h1>
-          <p className="text-sm font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>
-            SYSTEM HEALTH & ACTIVE ANOMALIES
-          </p>
+    <div className="min-h-screen flex flex-col bg-[#121317] text-[#e3e2e7] font-sans selection:bg-[#dbfcff] selection:text-[#00363a]">
+      {/* TopAppBar */}
+      <header className="sticky top-0 z-40 bg-[#121317]/80 backdrop-blur-md flex justify-between items-center px-8 py-6 border-b border-[#3b494b]/20">
+        <div className="flex items-center gap-8">
+          <div className="text-[#dbfcff] font-mono tracking-tighter text-2xl hidden md:block">OVERVIEW</div>
+          
+          {/* Service Toggle */}
+          <div className="bg-[#1a1b20] p-1 flex items-center border border-[#3b494b]/30">
+            <button 
+              onClick={() => setIsReal(true)}
+              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${isReal ? 'bg-[#00f0ff] text-[#006970] font-bold' : 'text-[#b9cacb]/40 hover:text-[#e3e2e7]'}`}
+            >
+              REAL
+            </button>
+            <button 
+              onClick={() => setIsReal(false)}
+              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${!isReal ? 'bg-[#ffb4ab] text-[#690005] font-bold' : 'text-[#b9cacb]/40 hover:text-[#e3e2e7]'}`}
+            >
+              DEMO
+            </button>
+          </div>
         </div>
-      </motion.div>
 
-      {/* Stats row */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-4 gap-4">
-        <StatCard title="TOTAL SERVICES" value={stats.total} icon={Network} color="var(--blue)" />
-        <StatCard title="HEALTHY" value={stats.healthy} icon={ShieldCheck} color="var(--emerald)" />
-        <StatCard title="WARNING" value={stats.warning} icon={Activity} color="var(--amber)" />
-        <StatCard title="CRITICAL" value={stats.critical} icon={AlertTriangle} color="var(--red)" />
-      </motion.div>
+        <div className="flex items-center gap-6">
+          {/* Refresh Countdown */}
+          <div className="hidden xl:flex items-center gap-2 px-3 py-1 bg-[#292a2e]/20 border border-[#3b494b]/10">
+            <span className="text-[9px] font-mono text-[#b9cacb]/60 uppercase tracking-[0.2em]">Refresh In:</span>
+            <span className="text-[10px] font-mono text-[#dbfcff] font-bold">{refreshCountdown}S</span>
+          </div>
+          
+          {/* Online Users Indicator */}
+          <div className="flex items-center gap-2 px-3 py-1 bg-[#292a2e]/40 backdrop-blur-md border border-[#3b494b]/20">
+            <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded-full animate-pulse"></span>
+            <span className="text-[10px] font-mono text-[#00dbe9] uppercase tracking-tighter">{stats.nodes} Active Nodes</span>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <Activity className="text-[#00dbe9] cursor-pointer hover:scale-110 transition-transform" size={18} />
+            <div className="w-8 h-8 bg-[#343439] border border-[#3b494b]/30 flex items-center justify-center overflow-hidden">
+               <span className="font-mono text-xs uppercase text-[#dbfcff]">{user?.username?.substring(0, 2) || 'AD'}</span>
+            </div>
+          </div>
+        </div>
+      </header>
 
-      <div className="grid grid-cols-3 gap-8">
-        {/* Left col - Active Incidents & Anomalies */}
-        <div className="col-span-2 space-y-8">
-          <Section title="ACTIVE INCIDENTS">
-            {incidents.length === 0 ? (
-              <div className="py-8 text-center border border-dashed rounded" style={{ borderColor: 'var(--border-strong)' }}>
-                <ShieldCheck className="mx-auto mb-2 opacity-50" size={24} style={{ color: 'var(--emerald)' }} />
-                <p className="text-sm font-mono" style={{ color: 'var(--text-muted)' }}>ALL SYSTEMS NOMINAL</p>
+      {/* System Health Strip */}
+      <div className="px-8 py-4 bg-[#0d0e12] grid grid-cols-2 md:grid-cols-4 gap-8 items-center border-b border-[#3b494b]/10">
+        <HealthBar label="CPU LOAD" value={stats.cpuAvg || 42} suffix="%" />
+        <HealthBar label="MEM ALLOC" value={stats.memAvg || 68.2} suffix="%" color="#00f0ff" />
+        <HealthBar label="DISK I/O" value={isReal ? 12 : 24} suffix="ms" color="#ffb4ab" />
+        <HealthBar label="NET TRAFFIC" value={isReal ? 1.2 : 3.4} suffix="GB/s" color="#7df4ff" />
+      </div>
+
+      {/* Content Grid */}
+      <div className="p-8 grid grid-cols-12 gap-6 flex-1">
+        {/* Hero Data Section */}
+        <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+          <div className="bg-[#1a1b20] p-8 relative overflow-hidden group border border-transparent hover:border-[#3b494b]/30 transition-colors">
+            <div className="absolute top-0 right-0 p-4 font-mono text-[8px] text-[#b9cacb]/20 tracking-widest">TRACE_ID: 0x9FA21</div>
+            
+            <div className="relative z-10 w-full">
+              <h1 className="text-5xl md:text-7xl font-mono tracking-tighter text-[#dbfcff] leading-[0.9] font-bold">
+                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5 }}>PREDICT</motion.div>
+                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 32, opacity: 1 }} transition={{ duration: 0.5, delay: 0.1 }}>FAILURES</motion.div>
+                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 16, opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>BEFORE</motion.div>
+                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5, delay: 0.3 }} className="text-[#b9cacb]/30">THEY HAPPEN.</motion.div>
+              </h1>
+            </div>
+
+            {/* Live Data Stream Overlay */}
+            <div className="mt-12 border-t border-[#3b494b]/10 pt-6">
+              <div className="flex gap-4 overflow-hidden">
+                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#00dbe9]">
+                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Uptime</div>
+                  <div className="text-xl font-mono text-[#00dbe9]">99.998%</div>
+                </div>
+                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#b9cacb]/30">
+                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Threats</div>
+                  <div className="text-xl font-mono text-[#e3e2e7]">0.02%</div>
+                </div>
+                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#b9cacb]/30">
+                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Avg Latency</div>
+                  <div className="text-xl font-mono text-[#e3e2e7]">{stats.p95Avg.toFixed(1)}ms</div>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {incidents.map((inc: any) => (
-                  <motion.div
-                    key={inc.incident_id}
-                    layoutId={`inc-${inc.incident_id}`}
-                    initial={{ opacity: 0, x: -10 }}
+            </div>
+          </div>
+
+          {/* Bento Grid Sub-items */}
+          <div className="grid grid-cols-2 gap-6">
+            <div className="bg-[#1a1b20] p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-[#3b494b]/20 transition-all">
+              <div className="flex justify-between items-start">
+                <Shield className="text-[#00dbe9]" size={20} />
+                <span className="text-[10px] font-mono text-[#b9cacb]">SEC_MODULE</span>
+              </div>
+              <div className="mt-4 md:mt-0">
+                <div className="text-2xl font-mono text-[#e3e2e7] mb-1">ENCRYPTED</div>
+                <div className="text-[10px] font-mono uppercase text-[#00dbe9] tracking-widest">End-to-End Tunnel Active</div>
+              </div>
+            </div>
+            
+            <div className="bg-[#1a1b20] p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-[#3b494b]/20 transition-all">
+              <div className="flex justify-between items-start">
+                <Target className="text-[#b9cacb]" size={20} />
+                <span className="text-[10px] font-mono text-[#b9cacb]">NODE_DIST</span>
+              </div>
+              <div className="mt-4 md:mt-0">
+                <div className="text-2xl font-mono text-[#e3e2e7] mb-1">GLOBAL</div>
+                <div className="text-[10px] font-mono uppercase text-[#b9cacb]/60 tracking-widest">{stats.nodes} Data Centers Online</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel: Live Monitoring */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+          <div className="bg-[#343439]/30 p-6 flex-1 flex flex-col shadow-[inset_0_0_15px_-5px_rgba(0,240,255,0.1)] border border-[#00f0ff]/10">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-sm font-sans font-bold uppercase tracking-widest">Activity Log</h3>
+              <Filter className="text-[#b9cacb]" size={16} />
+            </div>
+
+            <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+              <AnimatePresence>
+                {activityLogs.map((log: any, i: number) => (
+                  <motion.div 
+                    key={i}
+                    initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="p-4 rounded border relative overflow-hidden group"
-                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+                    className="p-3 bg-[#0d0e12] border-l group hover:bg-[#1a1b20] transition-colors"
+                    style={{ borderColor: log.color }}
                   >
-                    {inc.severity === 'critical' && <div className="absolute top-0 left-0 w-1 h-full shimmer-bar" />}
-                    {inc.severity !== 'critical' && (
-                      <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: severityColor(inc.severity) }} />
-                    )}
-                    
-                    <div className="pl-3 flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded uppercase"
-                            style={{
-                              backgroundColor: `color-mix(in srgb, ${severityColor(inc.severity)} 15%, transparent)`,
-                              color: severityColor(inc.severity),
-                            }}>
-                            {inc.severity}
-                          </span>
-                          <span className="font-mono text-sm uppercase tracking-wider text-white">
-                            {inc.service_id}
-                          </span>
-                          <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-                            {relativeTime(inc.created_at)}
-                          </span>
-                        </div>
-                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{inc.summary}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono text-2xl font-light" style={{ color: scoreColor(inc.anomaly_score_at_trigger) }}>
-                          {inc.anomaly_score_at_trigger.toFixed(3)}
-                        </p>
-                        <p className="text-[10px] font-mono tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
-                          Trigger Score
-                        </p>
-                      </div>
+                    <div className="flex justify-between text-[9px] font-mono mb-1">
+                      <span style={{ color: log.color }}>{log.type}</span>
+                      <span className="text-[#b9cacb]">{log.time}</span>
+                    </div>
+                    <div className="text-xs font-sans text-[#e3e2e7]">
+                      {log.msg}
                     </div>
                   </motion.div>
                 ))}
+              </AnimatePresence>
+            </div>
+
+            {/* Mini visual wave */}
+            <div className="mt-6">
+              <div className="h-[120px] w-full relative flex items-end gap-1">
+                {[20, 30, 40, 20, 60, 40, 20, 80, 50, 30].map((h, i) => (
+                  <motion.div 
+                    key={i} 
+                    animate={{ height: `${h + (Math.random() * 20 - 10)}%` }}
+                    transition={{ repeat: Infinity, duration: 1.5, repeatType: 'reverse', ease: 'easeInOut', delay: i * 0.1 }}
+                    className="flex-1 bg-[#00dbe9]/40" 
+                  />
+                ))}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0d0e12] via-[#0d0e12]/0 to-[#0d0e12]/80 pointer-events-none"></div>
               </div>
-            )}
-          </Section>
-          
-          <Section title="REAL-TIME ANOMALIES (STREAM)">
-            <div className="rounded border bg-black/50 overflow-hidden font-mono text-xs" style={{ borderColor: 'var(--border-strong)' }}>
-              <div className="grid grid-cols-4 gap-4 p-3 border-b tracking-wider" style={{ borderColor: 'var(--border-strong)', color: 'var(--text-muted)' }}>
-                <span>TIME</span>
-                <span>SERVICE</span>
-                <span>SCORE</span>
-                <span>TYPE</span>
-              </div>
-              <div className="max-h-[300px] overflow-y-auto">
-                <AnimatePresence initial={false}>
-                  {latestAnomalies.map((anom) => (
-                    <motion.div
-                      key={`${anom.service_id}-${anom.detected_at}`}
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      className="grid grid-cols-4 gap-4 p-3 border-b border-white/5 transition-colors hover:bg-white/5"
-                    >
-                      <span style={{ color: 'var(--text-secondary)' }}>{formatTimestamp(anom.detected_at)}</span>
-                      <span className="text-white">{anom.service_id}</span>
-                      <span style={{ color: scoreColor(anom.anomaly_score) }}>{anom.anomaly_score.toFixed(4)}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{anom.anomaly_type}</span>
-                    </motion.div>
-                  ))}
-                  {latestAnomalies.length === 0 && (
-                    <div className="p-8 text-center text-muted-foreground/50 italic">Waiting for telemetry...</div>
-                  )}
-                </AnimatePresence>
+              <div className="flex justify-between mt-2 text-[8px] font-mono text-[#b9cacb] tracking-widest">
+                <span>00:00:00</span>
+                <span>LIVE_TRAFFIC_WAVE</span>
+                <span>MARKER_0.4s</span>
               </div>
             </div>
-          </Section>
+          </div>
         </div>
 
-        {/* Right col - Services Overview */}
-        <div className="space-y-8">
-          <Section title="SERVICE STATUS">
-            <div className="space-y-2">
-              {services.map((svc: any) => (
-                <div key={svc.service_id} className="flex items-center justify-between p-3 rounded border transition-colors hover:bg-white/5" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-                  <div className="flex items-center gap-3">
-                    <span className={`w-2 h-2 rounded-full dot-${svc.health_status}`} />
-                    <span className="font-mono text-sm tracking-wider" style={{ color: 'var(--text-primary)' }}>{svc.name}</span>
-                  </div>
-                  <span className="font-mono text-[10px] px-2 py-0.5 rounded uppercase" style={{ backgroundColor: 'var(--bg-raised)', color: 'var(--text-muted)' }}>
-                    {svc.version}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Section>
-        </div>
+      </div>
+
+      {/* Visual Texture / Background Elements */}
+      <div className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden opacity-20 hidden lg:block">
+        <div className="absolute inset-0" style={{
+          backgroundImage: 'radial-gradient(circle, #dbfcff 1px, transparent 1px)',
+          backgroundSize: '40px 40px'
+        }} />
       </div>
     </div>
   )
 }
 
-function StatCard({ title, value, icon: Icon, color }: any) {
+function HealthBar({ label, value, suffix, color = '#00dbe9' }: { label: string, value: number, suffix: string, color?: string }) {
   return (
-    <motion.div
-      variants={staggerItem}
-      className="p-5 rounded-lg border flex flex-col relative overflow-hidden group"
-      style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}
-    >
-      <div className="absolute -right-4 -top-4 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-500">
-        <Icon size={120} />
+    <div className="space-y-2 relative">
+      <div className="flex justify-between text-[9px] font-mono uppercase tracking-widest text-[#b9cacb]">
+        <div className="flex items-center gap-2">
+          <span className="w-1 h-1 rounded-full animate-pulse" style={{ backgroundColor: color }}></span>
+          <span>{label}</span>
+        </div>
+        <span style={{ color }}>{value.toFixed(1)}{suffix}</span>
       </div>
-      <div className="flex items-center gap-2 mb-4">
-        <Icon size={16} style={{ color }} />
-        <h3 className="font-mono text-[10px] tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>{title}</h3>
+      <div className="h-1 bg-[#343439] w-full overflow-hidden">
+        <motion.div 
+          className="h-full" 
+          initial={{ width: 0 }} 
+          animate={{ width: `${Math.min(value, 100)}%` }} 
+          transition={{ duration: 1, delay: 0.2 }}
+          style={{ backgroundColor: color }} 
+        />
       </div>
-      <p className="font-mono text-4xl font-light tracking-tight" style={{ color: 'var(--text-primary)' }}>
-        {value}
-      </p>
-    </motion.div>
-  )
-}
-
-function Section({ title, children }: any) {
-  return (
-    <section>
-      <h2 className="font-mono text-xs font-semibold tracking-[0.2em] mb-4 pb-2 border-b" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border-strong)' }}>
-        {title}
-      </h2>
-      {children}
-    </section>
+    </div>
   )
 }

@@ -5,54 +5,53 @@ import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Server, AlertTriangle, TrendingUp,
-  BookOpen, Settings, Users, Brain, LogOut, ChevronLeft, ChevronRight
+  BookOpen, Settings, Users, Brain, LogOut, ChevronLeft, ChevronRight,
+  FileText, Rocket, Target, Microscope, ShieldCheck
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore } from '@/store/uiStore'
 import { useWsStore } from '@/store/wsStore'
 import { apiClient } from '@/lib/api'
-import { avatarColor, initials } from '@/lib/utils'
-import { staggerContainer, staggerItem } from '@/lib/animations'
-import { useReducedMotion } from '@/hooks/useReducedMotion'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { GlobalTools } from './GlobalTools'
 
 const NAV_ITEMS = [
   { group: 'MONITOR', items: [
-    { label: 'Overview', href: '/', icon: LayoutDashboard, shortcut: 'G→O' },
-    { label: 'Services', href: '/services', icon: Server, shortcut: 'G→S' },
-    { label: 'Incidents', href: '/incidents', icon: AlertTriangle, shortcut: 'G→I' },
-    { label: 'Forecasts', href: '/forecasts', icon: TrendingUp, shortcut: 'G→F' },
+    { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+    { label: 'Sentinel', href: '/services', icon: ShieldCheck },
+    { label: 'Anomaly Lab', href: '/anomaly-lab', icon: TrendingUp },
+    { label: 'Alerts', href: '/incidents', icon: AlertTriangle, hasBadge: true },
   ]},
   { group: 'MANAGE', items: [
-    { label: 'Runbooks', href: '/runbooks', icon: BookOpen, shortcut: 'G→R' },
-    { label: 'Settings', href: '/settings', icon: Settings, shortcut: 'G→X' },
+    { label: 'Settings', href: '/settings', icon: Settings },
   ]},
 ]
 
 const ADMIN_ITEMS = [
-  { label: 'Users', href: '/settings?tab=users', icon: Users, shortcut: 'G→U' },
-  { label: 'ML Models', href: '/ml', icon: Brain, shortcut: 'G→M' },
+  { label: 'Users', href: '/settings?tab=users', icon: Users },
+  { label: 'ML Models', href: '/ml', icon: Brain },
 ]
-
-function LiveClock() {
-  const [time, setTime] = useState('')
-  useEffect(() => {
-    const update = () => {
-      setTime(new Date().toUTCString().split(' ')[4] + ' UTC')
-    }
-    update()
-    const id = setInterval(update, 1000)
-    return () => clearInterval(id)
-  }, [])
-  return <span className="font-mono text-[11px]" style={{ color: 'var(--text-muted)' }}>{time}</span>
-}
 
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, clearAuth, isAdmin } = useAuthStore()
+  const { user, setUser, clearAuth, isAdmin } = useAuthStore()
   const { sidebarCollapsed, toggleSidebar } = useUiStore()
   const { connected } = useWsStore()
-  const reduced = useReducedMotion()
+
+  useWebSocket()
+
+  const isWarRoom = pathname.startsWith('/incidents/') && pathname !== '/incidents'
+
+  useEffect(() => {
+    if (!user && document.cookie.includes('access_token')) {
+      apiClient.me().then(res => {
+        setUser(res.data)
+      }).catch(() => {
+        clearAuth()
+      })
+    }
+  }, [user, setUser, clearAuth])
 
   const handleLogout = async () => {
     try { await apiClient.logout() } catch {}
@@ -60,117 +59,100 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  const w = sidebarCollapsed ? 64 : 220
+  const w = sidebarCollapsed ? 80 : 256
+  if (isWarRoom) return null
 
   return (
     <motion.aside
       layout
       animate={{ width: w }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="flex flex-col h-screen flex-shrink-0 overflow-hidden"
-      style={{
-        backgroundColor: 'var(--bg-base)',
-        borderRight: '1px solid var(--border-subtle)',
-      }}
+      className="hidden lg:flex flex-col h-screen flex-shrink-0 bg-[#121317] py-8 z-50 overflow-hidden"
     >
-      {/* Logo */}
-      <div className="flex items-center justify-between px-4 py-5">
-        <AnimatePresence>
-          {!sidebarCollapsed && (
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="flex items-center gap-2"
-            >
-              <span className="font-mono font-medium tracking-[0.4em] text-sm" style={{ color: 'var(--text-primary)' }}>
-                SENTINEL
-              </span>
-              <span className="dot-healthy" />
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <div className="px-8 mb-12 flex justify-between items-center">
+        {!sidebarCollapsed && (
+          <div>
+            <div className="text-lg font-mono text-[#dbfcff] flex items-center gap-3">
+              <ShieldCheck size={20} fill="currentColor" />
+              <span>SENTINEL</span>
+            </div>
+            <div className="text-[10px] uppercase tracking-widest font-mono text-[#b9cacb]/60 mt-1">v2.4.0-STABLE</div>
+          </div>
+        )}
         <button
           onClick={toggleSidebar}
-          className="p-1 rounded transition-colors"
-          style={{ color: 'var(--text-muted)' }}
-          data-cursor="hover"
+          className="p-1 rounded transition-colors text-[#b9cacb] hover:text-[#e3e2e7]"
         >
-          {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-4">
+      <nav className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
         {NAV_ITEMS.map((group) => (
-          <div key={group.group}>
+          <div key={group.group} className="mb-4">
             {!sidebarCollapsed && (
-              <p className="px-2 mb-1 font-mono text-[10px] font-medium tracking-widest"
-                style={{ color: 'var(--text-muted)' }}>
+              <p className="px-8 mb-2 font-mono text-[10px] font-medium tracking-widest text-[#b9cacb]/60">
                 {group.group}
               </p>
             )}
-            <motion.ul
-              variants={reduced ? {} : staggerContainer}
-              initial="hidden"
-              animate="visible"
-              className="space-y-0.5"
-            >
+            <ul className="space-y-1">
               {group.items.map((item) => {
                 const active = pathname === item.href
                 const Icon = item.icon
                 return (
-                  <motion.li key={item.href} variants={reduced ? {} : staggerItem}>
+                  <li key={item.href}>
                     <Link
                       href={item.href}
-                      data-cursor="hover"
-                      className="flex items-center gap-3 px-2 py-2 rounded text-sm transition-colors group relative"
-                      style={{
-                        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                        backgroundColor: active ? 'var(--bg-raised)' : 'transparent',
-                        borderLeft: active ? '2px solid var(--blue)' : '2px solid transparent',
-                      }}
+                      className={`flex items-center gap-4 py-4 transition-all duration-200 relative ${
+                        sidebarCollapsed ? 'justify-center px-4' : 'px-8'
+                      } ${
+                        active 
+                          ? 'text-[#dbfcff] bg-[#292a2e] border-l-2 border-[#dbfcff]' 
+                          : 'text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] border-l-2 border-transparent'
+                      }`}
                     >
-                      <Icon size={16} strokeWidth={1.5} />
+                      <Icon size={20} strokeWidth={active ? 2 : 1.5} />
                       {!sidebarCollapsed && (
-                        <>
-                          <span className="flex-1">{item.label}</span>
-                          <span
-                            className="font-mono text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            {item.shortcut}
-                          </span>
-                        </>
+                        <span className="text-[10px] uppercase tracking-widest font-mono shrink-0">{item.label}</span>
+                      )}
+                      {!sidebarCollapsed && item.hasBadge && (
+                         <span className="absolute right-8 top-1/2 -translate-y-1/2 w-2 h-2 bg-[#00f0ff] rounded-full ring-4 ring-[#121317]"></span>
                       )}
                     </Link>
-                  </motion.li>
+                  </li>
                 )
               })}
-            </motion.ul>
+            </ul>
           </div>
         ))}
 
-        {/* Admin section */}
         {isAdmin() && (
-          <div>
+          <div className="mb-4">
             {!sidebarCollapsed && (
-              <p className="px-2 mb-1 font-mono text-[10px] font-medium tracking-widest"
-                style={{ color: 'var(--text-muted)' }}>ADMIN</p>
+              <p className="px-8 mb-2 font-mono text-[10px] font-medium tracking-widest text-[#b9cacb]/60">
+                ADMIN
+              </p>
             )}
-            <ul className="space-y-0.5">
+            <ul className="space-y-1">
               {ADMIN_ITEMS.map((item) => {
-                const Icon = item.icon
                 const active = pathname.startsWith(item.href.split('?')[0])
+                const Icon = item.icon
                 return (
                   <li key={item.href}>
-                    <Link href={item.href} data-cursor="hover"
-                      className="flex items-center gap-3 px-2 py-2 rounded text-sm transition-colors"
-                      style={{
-                        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                        backgroundColor: active ? 'var(--bg-raised)' : 'transparent',
-                        borderLeft: active ? '2px solid var(--blue)' : '2px solid transparent',
-                      }}>
-                      <Icon size={16} strokeWidth={1.5} />
-                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    <Link
+                      href={item.href}
+                      className={`flex items-center gap-4 py-4 transition-all duration-200 ${
+                        sidebarCollapsed ? 'justify-center px-4' : 'px-8'
+                      } ${
+                        active 
+                          ? 'text-[#dbfcff] bg-[#292a2e] border-l-2 border-[#dbfcff]' 
+                          : 'text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] border-l-2 border-transparent'
+                      }`}
+                    >
+                      <Icon size={20} strokeWidth={active ? 2 : 1.5} />
+                      {!sidebarCollapsed && (
+                        <span className="text-[10px] uppercase tracking-widest font-mono shrink-0">{item.label}</span>
+                      )}
                     </Link>
                   </li>
                 )
@@ -180,55 +162,32 @@ export function Sidebar() {
         )}
       </nav>
 
-      {/* Bottom */}
-      <div className="px-3 py-4 space-y-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-        {!sidebarCollapsed && <LiveClock />}
+      {/* Bottom Profile / Tools */}
+      <div className={`px-8 mt-auto space-y-6 ${sidebarCollapsed ? 'hidden' : 'block'}`}>
         
-        {/* WS Status */}
-        <div className="flex items-center gap-2">
-          <span className={connected ? 'dot-healthy' : 'dot-unknown'} style={{ width: 6, height: 6 }} />
-          {!sidebarCollapsed && (
-            <span className="font-mono text-[10px]" style={{ color: 'var(--text-muted)' }}>
-              {connected ? 'Connected' : 'Offline'}
-            </span>
-          )}
+        <div className="border-t border-[#3b494b]/20 pt-6 flex justify-center">
+          <GlobalTools />
         </div>
 
-        {/* User section */}
         {user && (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: avatarColor(user.username) }}
-              >
-                <span className="font-mono text-[10px] font-medium text-white">
-                  {initials(user.username)}
+          <div className="flex items-center justify-between border-t border-[#3b494b]/20 pt-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#1a1b20] flex items-center justify-center border border-[#3b494b]/30">
+                <span className="font-mono text-[10px] text-[#dbfcff] uppercase">
+                  {user.username.substring(0,2)}
                 </span>
               </div>
-              {!sidebarCollapsed && (
-                <div>
-                  <p className="font-mono text-[11px] font-medium" style={{ color: 'var(--text-primary)' }}>
-                    {user.username}
-                  </p>
-                  <span className="font-mono text-[9px] uppercase tracking-wider px-1 py-0.5 rounded"
-                    style={{
-                      color: user.role === 'admin' ? 'var(--red)' : user.role === 'operator' ? 'var(--amber)' : 'var(--blue)',
-                      backgroundColor: user.role === 'admin' ? 'var(--red-muted)' : user.role === 'operator' ? 'var(--amber-muted)' : 'var(--blue-muted)',
-                    }}>
-                    {user.role}
-                  </span>
-                </div>
-              )}
+              <div className="flex flex-col">
+                <span className="font-mono text-[12px] text-[#e3e2e7]">{user.username}</span>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-[#00f0ff]">{user.role}</span>
+              </div>
             </div>
             <button
               onClick={handleLogout}
-              className="p-1 rounded transition-colors"
-              style={{ color: 'var(--text-muted)' }}
-              title="Sign out"
-              data-cursor="hover"
+              className="text-[#b9cacb]/60 hover:text-[#ffb4ab] transition-colors"
+              title="Logout"
             >
-              <LogOut size={14} />
+              <LogOut size={16} />
             </button>
           </div>
         )}

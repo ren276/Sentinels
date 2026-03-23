@@ -296,6 +296,72 @@ async def seed_database() -> None:
 
         await db.commit()
         log.info("seed.model_registry.done")
+
+        # ── Deployments ───────────────────────────────────────────────────────
+        for svc in SERVICES:
+            # 2 deployments per service in the last 7 days
+            for i in range(2):
+                dep_id = f"dep-{svc}-{i}"
+                ts = now - timedelta(days=2+i*3, hours=random.randint(0, 10))
+                await db.execute(text("""
+                    INSERT INTO deployments
+                        (deployment_id, service_id, version, previous_version,
+                         deployed_by, environment, status, commit_hash, deployed_at)
+                    VALUES
+                        (:did, :sid, :v, :pv, 'ci-bot', 'production', 'success', :ch, :ts)
+                    ON CONFLICT DO NOTHING
+                """), {
+                    "did": dep_id, "sid": svc, "v": f"1.0.{i+1}", "pv": f"1.0.{i}",
+                    "ch": uuid.uuid4().hex[:8], "ts": ts
+                })
+
+        # ── SLOs & Snapshots ──────────────────────────────────────────────────
+        slo_configs = [
+            ("Availability", "error_rate", 0.01, "less_than", 30),
+            ("Latency P95", "p95_latency_ms", 500, "less_than", 30),
+            ("CPU Efficiency", "cpu_usage", 0.8, "less_than", 7),
+        ]
+        for svc in SERVICES:
+            for name, metric, target, comp, window in slo_configs:
+                slo_id = f"slo-{svc}-{metric}"
+                await db.execute(text("""
+                    INSERT INTO slos (slo_id, service_id, name, metric_name, target_value, comparison, window_days, created_by)
+                    VALUES (:id, :sid, :name, :metric, :target, :comp, :window, 'admin')
+                    ON CONFLICT DO NOTHING
+                """), {
+                    "id": slo_id, "sid": svc, "name": name, "metric": metric,
+                    "target": target, "comp": comp, "window": window
+                })
+                # Seed snapshots for last 24h
+                for h in range(24):
+                    ts = now - timedelta(hours=h)
+                    # Random realistic compliance
+                    comp_pct = random.uniform(98.5, 100.0) if metric == "error_rate" else random.uniform(94, 99.8)
+                    await db.execute(text("""
+                        INSERT INTO slo_snapshots
+                            (slo_id, compliance_pct, error_budget_remaining_pct, error_budget_consumed_minutes,
+                             good_minutes, bad_minutes, snapshot_at)
+                        VALUES
+                            (:sid, :cp, :ebr, :ebc, :gm, :bm, :ts)
+                    """), {
+                        "sid": slo_id, "cp": comp_pct, "ebr": comp_pct - 90,
+                        "ebc": random.randint(0, 100), "gm": 15, "bm": 0 if comp_pct > 99.9 else 1, "ts": ts
+                    })
+
+        # ── Correlate anomalies with deployments ──────────────────────────────
+        # Find anomalies within 30m of a deployment
+        await db.execute(text("""
+            UPDATE anomalies a
+            SET correlated_deployment_id = d.deployment_id,
+                minutes_after_deployment = EXTRACT(EPOCH FROM (a.detected_at - d.deployed_at))/60
+            FROM deployments d
+            WHERE a.service_id = d.service_id
+              AND a.detected_at >= d.deployed_at
+              AND a.detected_at <= d.deployed_at + INTERVAL '30 minutes'
+        """))
+
+        await db.commit()
+        log.info("seed.deployments_slos.done")
         log.info("seed.complete", services=len(SERVICES))
 
 

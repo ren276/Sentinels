@@ -252,9 +252,46 @@ async def run_combined_detection(
             if s is not None:
                 lstm_score = s
 
-    # Combined
     final_score = 0.6 * if_score + 0.4 * lstm_score
     latest = features_df.iloc[-1].to_dict()
+    # Sanitize NaN values for JSONB compatibility in Postgres
+    feature_values = {}
+    for k, v in latest.items():
+        if k in FEATURE_NAMES:
+            try:
+                val = float(v)
+                feature_values[k] = 0.0 if np.isnan(val) else val
+            except (ValueError, TypeError):
+                feature_values[k] = 0.0
+
+    # ── SHAP explanation ───────────────────────────────────────────────────
+    shap_explanation: list[dict] = []
+    top_contributor: Optional[str] = None
+
+    if if_model is not None and if_scaler is not None:
+        try:
+            import shap
+            X_scaled = if_scaler.transform(X[-1:])
+            explainer = shap.TreeExplainer(if_model)
+            shap_values = explainer.shap_values(X_scaled)
+            # shap_values shape: (1, n_features)
+            sv = shap_values[0] if shap_values is not None else []
+            explanation_list = []
+            for i, feat in enumerate(FEATURE_NAMES):
+                val = float(sv[i]) if i < len(sv) else 0.0
+                explanation_list.append({
+                    "feature": feat,
+                    "value": feature_values.get(feat, 0.0),
+                    "shap_value": val,
+                    "direction": "positive" if val > 0 else "negative",
+                })
+            # Sort by absolute shap value descending
+            explanation_list.sort(key=lambda x: abs(x["shap_value"]), reverse=True)
+            shap_explanation = explanation_list
+            if explanation_list:
+                top_contributor = explanation_list[0]["feature"]
+        except Exception as shap_exc:
+            log.debug("shap.explanation_failed", error=str(shap_exc))
 
     result = {
         "anomaly_id": str(uuid.uuid4()),
@@ -264,7 +301,11 @@ async def run_combined_detection(
         "lstm_score": float(lstm_score),
         "anomaly_type": "combined",
         "metric_name": "multi",
-        "features": {k: float(v) for k, v in latest.items() if k in FEATURE_NAMES},
+        "features": {
+            **feature_values,
+            **({"shap_explanation": shap_explanation, "top_contributor": top_contributor}
+               if shap_explanation else {}),
+        },
         "detected_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -276,3 +317,4 @@ class _null_ctx:
         return self
     def __exit__(self, *args):
         pass
+
