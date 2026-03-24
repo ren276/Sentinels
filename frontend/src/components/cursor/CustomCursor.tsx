@@ -3,10 +3,15 @@ import { useEffect } from 'react'
 import { motion, useMotionValue, useSpring } from 'framer-motion'
 import { useCursorStore } from '@/store/cursorStore'
 
+import { usePathname } from 'next/navigation'
+
 export function CustomCursor() {
+  const pathname = usePathname()
   const mx = useMotionValue(-100)
   const my = useMotionValue(-100)
   const { type } = useCursorStore()
+
+  if (pathname !== '/login') return null
 
   const dotX = useSpring(mx, { stiffness: 1000, damping: 50 })
   const dotY = useSpring(my, { stiffness: 1000, damping: 50 })

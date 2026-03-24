@@ -130,11 +130,9 @@ export function GlobalTools() {
                 <div className="mt-2 space-y-1">
                   <button onClick={() => { router.push('/incidents'); setSearchOpen(false) }} className="w-full text-left px-3 py-2 font-mono text-xs text-[#e3e2e7] hover:bg-[#343439] hover:text-[#00f0ff] transition-colors uppercase tracking-widest flex items-center justify-between">
                     <span>View Active Incidents</span>
-                    <span className="text-[9px] text-[#b9cacb]/40 border border-[#3b494b] px-1">G O</span>
                   </button>
                   <button onClick={() => { router.push('/settings'); setSearchOpen(false) }} className="w-full text-left px-3 py-2 font-mono text-xs text-[#e3e2e7] hover:bg-[#343439] hover:text-[#00f0ff] transition-colors uppercase tracking-widest flex items-center justify-between">
                     <span>System Settings</span>
-                    <span className="text-[9px] text-[#b9cacb]/40 border border-[#3b494b] px-1">G S</span>
                   </button>
                 </div>
               </div>

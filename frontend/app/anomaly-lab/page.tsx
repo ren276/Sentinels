@@ -155,37 +155,33 @@ function AnomalyRow({ anomaly, isSelected, onSelect }: { anomaly: Anomaly; isSel
       <button
         id={`anomaly-row-${anomaly.anomaly_id}`}
         onClick={onSelect}
-        className="w-full text-left p-4 rounded border transition-colors hover:bg-white/5"
-        style={{
-          backgroundColor: isSelected ? 'var(--bg-raised)' : 'var(--bg-surface)',
-          borderColor: isSelected ? 'var(--blue)' : 'var(--border)',
-        }}
+        className={`w-full text-left p-6 transition-all relative overflow-hidden ${isSelected ? 'bg-surface-container-high glow-border' : 'bg-surface-container-low hover:bg-surface-container-high'}`}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded border flex items-center justify-center flex-shrink-0"
-              style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}>
-              <span className="font-mono text-xs font-bold" style={{ color, fontFamily: 'var(--font-dm-mono)' }}>
+        <div className="flex items-center justify-between relative z-10">
+          <div className="flex items-center gap-6">
+            <div className={`w-12 h-12 border flex items-center justify-center flex-shrink-0 ${score >= 0.8 ? 'border-error/40 bg-error/5 text-error' : 'border-primary/40 bg-primary/5 text-primary'}`}>
+              <span className="font-mono text-sm font-black">
                 {score.toFixed(2)}
               </span>
             </div>
             <div>
-              <p className="font-mono text-sm uppercase font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {anomaly.service_id}
+              <p className="font-mono text-sm uppercase font-bold text-on-surface tracking-tight">
+                {anomaly.service_id}.CORE
               </p>
-              <p className="font-mono text-[10px] uppercase" style={{ color: 'var(--text-muted)' }}>
-                {anomaly.anomaly_type} · {relativeTime(anomaly.detected_at)}
+              <p className="font-mono text-[9px] uppercase tracking-widest text-on-surface-variant/60 flex items-center gap-2 mt-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary/40"></span>
+                {anomaly.anomaly_type} // {relativeTime(anomaly.detected_at)}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>IF / LSTM</p>
-              <p className="font-mono text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-dm-mono)' }}>
-                {anomaly.if_score.toFixed(3)} / {anomaly.lstm_score.toFixed(3)}
+          <div className="flex items-center gap-6">
+            <div className="text-right hidden md:block">
+              <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-on-surface-variant/40 mb-1">IF_ENGINE / LSTM_PROB</p>
+              <p className="font-mono text-xs text-on-surface font-bold">
+                {anomaly.if_score.toFixed(3)} <span className="text-on-surface-variant/20 mx-1">|</span> {anomaly.lstm_score.toFixed(3)}
               </p>
             </div>
-            <ChevronRight size={14} style={{ color: isSelected ? 'var(--blue)' : 'var(--text-muted)', transform: isSelected ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            <ChevronRight size={16} className={`text-on-surface-variant transition-transform duration-300 ${isSelected ? 'rotate-90 text-primary' : ''}`} />
           </div>
         </div>
       </button>
@@ -196,9 +192,8 @@ function AnomalyRow({ anomaly, isSelected, onSelect }: { anomaly: Anomaly; isSel
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="border-x border-b rounded-b overflow-hidden"
-            style={{ borderColor: 'var(--blue)' }}
+            transition={{ duration: 0.3 }}
+            className="border-x border-b border-primary/20 bg-surface-container-low overflow-hidden"
           >
             <ExplanationPanel anomalyId={anomaly.anomaly_id} />
           </motion.div>
@@ -220,29 +215,31 @@ export default function AnomalyLabPage() {
   const toggle = (id: string) => setSelectedId(s => s === id ? null : id)
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-6">
+    <div className="p-8 max-w-4xl mx-auto space-y-8 relative z-10">
+      <div className="fixed inset-0 dot-grid opacity-[0.03] pointer-events-none z-[-1]" />
+
       <motion.div variants={fadeUp} initial="hidden" animate="visible">
-        <h1 className="text-2xl font-mono font-medium tracking-wide mb-1 flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-          <Microscope size={22} style={{ color: 'var(--blue)' }} />ANOMALY LAB
+        <h1 className="text-3xl font-mono font-black tracking-tighter text-on-surface mb-1 flex items-center gap-3 uppercase">
+          <Microscope size={28} className="text-primary" />ANOMALY LAB
         </h1>
-        <p className="text-sm font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>
-          SHAP EXPLAINABILITY · FEATURE IMPORTANCE · SCORE BREAKDOWN
+        <p className="text-[10px] font-mono tracking-[0.3em] text-on-surface-variant uppercase">
+          SHAP_EXPLAINABILITY // FEATURE_IMPORTANCE // SCORE_LOG
         </p>
       </motion.div>
 
-      <div className="p-4 rounded border font-mono text-xs" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-        <span style={{ color: 'var(--blue)' }}>ℹ</span>
-        {' '}Click any anomaly to expand its SHAP explanation. Positive values (red) push the anomaly score up. Negative values (blue) are normal indicators. SHAP requires a trained Isolation Forest model.
+      <div className="p-4 bg-surface-container-low border-l-2 border-primary/40 font-mono text-[10px] uppercase tracking-widest leading-relaxed text-on-surface-variant">
+        <span className="text-primary font-bold">PROTOCOL_INFO:</span>
+        {' '}Expand anomaly rows to trigger SHAP reconstruction. Red vectors indicate positive pressure on anomaly score. Blue vectors represent normative status.
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
+        <div className="space-y-4">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-16 rounded border animate-pulse" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }} />
+            <div key={i} className="h-20 bg-surface-container-low animate-pulse" />
           ))}
         </div>
       ) : (
-        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-2">
+        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-3">
           {anomalies.map((a: Anomaly) => (
             <AnomalyRow
               key={a.anomaly_id}
@@ -252,9 +249,9 @@ export default function AnomalyLabPage() {
             />
           ))}
           {anomalies.length === 0 && (
-            <div className="py-20 text-center border border-dashed rounded" style={{ borderColor: 'var(--border-strong)' }}>
-              <Microscope size={32} className="mx-auto mb-4" style={{ color: 'var(--text-muted)' }} />
-              <p className="font-mono text-sm tracking-widest" style={{ color: 'var(--text-muted)' }}>NO ANOMALIES DETECTED</p>
+            <div className="py-32 text-center border-2 border-dashed border-outline-variant/10">
+              <Microscope size={48} className="mx-auto mb-6 text-on-surface-variant/20" />
+              <p className="font-mono text-sm tracking-[0.4em] text-on-surface-variant uppercase">NO_ANOMALIES_IN_STORAGE</p>
             </div>
           )}
         </motion.div>

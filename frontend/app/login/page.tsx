@@ -1,286 +1,361 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
-import { AlertCircle, Loader2, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { AlertCircle, Loader2, Eye, EyeOff, ArrowRight, Lock, Mail, Check, Shield } from 'lucide-react'
 import { apiClient } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { useCursorStore } from '@/store/cursorStore'
+import { useQuery } from '@tanstack/react-query'
 
 export default function LoginPage() {
+  const [activeTab, setActiveTab] = useState<'signin' | 'create'>('signin')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<{ type: 'invalid' | 'locked' | 'network'; msg: string; unlockIn?: number } | null>(null)
   const [showPassword, setShowPassword] = useState(false)
+  const [showForgot, setShowForgot] = useState(false)
+  const [showAccess, setShowAccess] = useState(false)
   
   const router = useRouter()
   const { setUser } = useAuthStore()
   const { setType } = useCursorStore()
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
 
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: () => apiClient.getHealth().then(res => res.data).catch(() => null),
+    refetchInterval: 30000,
+  })
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiClient.getSettings().then(res => res.data).catch(() => ({})),
+  })
+
+  // Timer for lockout
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (error?.type === 'locked' && error.unlockIn && error.unlockIn > 0) {
+      interval = setInterval(() => {
+        setError(prev => prev && prev.type === 'locked' ? { ...prev, unlockIn: prev.unlockIn! - 1 } : prev)
+      }, 1000)
+    } else if (error?.type === 'locked' && error.unlockIn === 0) {
+      setError(null)
+    }
+    return () => clearInterval(interval)
+  }, [error])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
+    if (error?.type === 'locked') return
+    setError(null)
     setLoading(true)
 
     try {
-      await apiClient.login(username, password)
-      const { data: user } = await apiClient.me()
-      setUser(user)
-      window.location.href = '/'
+      if (activeTab === 'signin') {
+        await apiClient.login(username, password)
+        const { data: user } = await apiClient.me()
+        setUser(user)
+        window.location.href = '/'
+      } else {
+        await apiClient.register({ username, email, password })
+        setActiveTab('signin')
+        alert('CHECK YOUR EMAIL')
+      }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed')
+      const status = err.response?.status
+      if (status === 401) {
+        setError({ type: 'invalid', msg: 'Invalid credentials. Access denied.' })
+      } else if (status === 429 || status === 423) {
+        setError({ type: 'locked', msg: 'Try again in', unlockIn: 60 })
+      } else if (!status) {
+        setError({ type: 'network', msg: 'Cannot reach sentinel backend.' })
+      } else {
+        setError({ type: 'invalid', msg: err.response?.data?.detail || 'Authentication failed.' })
+      }
+    } finally {
       setLoading(false)
     }
   }
 
   const handleOAuthLogin = (provider: string) => {
-    window.location.href = `http://localhost:8000/api/auth/${provider}`
+    window.location.href = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/auth/${provider}`
   }
 
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+        await apiClient.forgotPassword(email)
+        alert('CHECK YOUR EMAIL')
+        setShowForgot(false)
+    } catch (err: any) {
+        const adminEmail = settings?.admin_email || 'admin@sentinel.local'
+        alert(`Contact admin: ${adminEmail}`)
+    }
+  }
+
+  const handleRequestAccess = async (e: React.FormEvent, reqEmail: string, reqName: string, reason: string) => {
+    e.preventDefault()
+    try {
+        await apiClient.requestAccess({ email: reqEmail, name: reqName, reason })
+        alert('REQUEST SUBMITTED. ADMIN WILL CONTACT YOU.')
+        setShowAccess(false)
+    } catch {
+        alert('Failed to submit request.')
+    }
+  }
+
+  const formatLockout = (secs: number) => {
+    const m = Math.floor(secs / 60)
+    const s = secs % 60
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  }
+
+  const passStrength = Math.min(5, (password.length > 7 ? 1 : 0) + (/[A-Z]/.test(password) ? 1 : 0) + (/[a-z]/.test(password) ? 1 : 0) + (/[0-9]/.test(password) ? 1 : 0) + (/[^A-Za-z0-9]/.test(password) ? 1 : 0))
+
   return (
-    <main className="flex h-screen w-full bg-[#121317] text-[#e3e2e7] font-sans antialiased overflow-hidden">
-      {/* LEFT PANEL (55%): The Sentinel Interface */}
+    <main className="flex h-screen w-full bg-surface text-on-surface font-sans antialiased overflow-hidden">
+      {/* LEFT PANEL */}
       <section 
-        className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-12 bg-[#0d0e12] overflow-hidden"
+        className="hidden lg:flex lg:w-[55%] relative flex-col justify-between p-16 bg-surface-container-lowest overflow-hidden border-r border-outline-variant/10"
         onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+          const rect = e.currentTarget.getBoundingClientRect()
+          setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
         }}
-        onMouseEnter={() => setType('default')}
-        onMouseLeave={() => setType('default')}
       >
-        <div 
-          className="absolute w-[400px] h-[400px] rounded-full pointer-events-none z-0"
+        {/* Background Dot Grid */}
+        <div className="absolute inset-0 dot-grid opacity-[0.05] pointer-events-none z-0" />
+        
+        {/* Interactive Mouse Pulse */}
+        <motion.div 
+          className="absolute w-[600px] h-[600px] rounded-full pointer-events-none z-0 blur-[120px]"
+          animate={{
+            x: mousePos.x - 300,
+            y: mousePos.y - 300,
+          }}
+          transition={{ type: 'spring', damping: 30, stiffness: 200, mass: 0.5 }}
           style={{
-            background: 'radial-gradient(circle, rgba(219, 252, 255, 0.08) 0%, transparent 70%)',
-            transform: `translate(calc(${mousePos.x}px - 50%), calc(${mousePos.y}px - 50%)) scale(2.0)`,
-            transition: 'opacity 0.2s',
+            background: 'radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, transparent 70%)',
           }}
         />
-        {/* Background Dot Grid */}
-        <div className="absolute inset-0 opacity-20 pointer-events-none" style={{
-          backgroundImage: 'radial-gradient(circle, #3b494b 1px, transparent 1px)',
-          backgroundSize: '32px 32px'
-        }}></div>
 
-        {/* Top branding */}
         <div className="relative z-10 flex items-center gap-3">
-          <span className="w-2 h-2 bg-[#ffb4ab] rounded-full animate-pulse shadow-[0_0_8px_rgba(255,180,171,0.8)]"></span>
-          <h1 className="font-mono text-[13px] tracking-[0.4em] text-[#b9cacb] uppercase">SENTINEL</h1>
-        </div>
-
-        {/* Staggered Animated Text */}
-        <div className="relative z-10 flex flex-col font-mono text-[56px] leading-[1.1] text-[#dbfcff] tracking-tighter">
-          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.7, delay: 0 }}>Predict</motion.div>
-          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 24, opacity: 1 }} transition={{ duration: 0.7, delay: 0.15 }}>failures</motion.div>
-          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 48, opacity: 1 }} transition={{ duration: 0.7, delay: 0.3 }}>before</motion.div>
-          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.7, delay: 0.45 }} className="drop-shadow-[0_0_15px_rgba(219,252,255,0.3)]">
-            they happen.
-          </motion.div>
-
-          {/* Live Stat Chips */}
-          <div className="mt-12 flex gap-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }} className="bg-[#343439]/40 backdrop-blur-md px-4 py-2 opacity-100 flex items-center gap-2" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded animate-ping"></span>
-              <span className="font-mono text-[12px] text-[#e3e2e7] uppercase tracking-wider">14 services</span>
-            </motion.div>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.9 }} className="bg-[#343439]/40 backdrop-blur-md px-4 py-2 opacity-100 flex items-center gap-2" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <span className="w-1.5 h-1.5 bg-[#ffb4ab] rounded"></span>
-              <span className="font-mono text-[12px] text-[#e3e2e7] uppercase tracking-wider">3 incidents</span>
-            </motion.div>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="bg-[#343439]/40 backdrop-blur-md px-4 py-2 opacity-100 flex items-center gap-2" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <span className="w-1.5 h-1.5 bg-[#dbfcff] rounded"></span>
-              <span className="font-mono text-[12px] text-[#e3e2e7] uppercase tracking-wider">99.2% uptime</span>
-            </motion.div>
+          <div className="w-10 h-10 bg-primary/10 flex items-center justify-center border border-primary/20">
+            <Shield className="text-primary" size={20} />
+          </div>
+          <div>
+            <h1 className="font-mono text-[14px] tracking-[0.4em] text-primary uppercase font-bold">SENTINEL_OS</h1>
+            <p className="text-[8px] font-mono text-on-surface-variant/40 tracking-[0.2em]">KRNL_VER: 4.2.0-GENESIS</p>
           </div>
         </div>
 
-        {/* Version Tag */}
-        <div className="relative z-10">
-          <p className="font-mono text-[11px] text-[#b9cacb] uppercase tracking-widest">v1.0.0-STABLE // BUILD_ID: 84920</p>
+        <div className="relative z-10 flex flex-col font-mono text-[64px] leading-[0.9] text-primary tracking-tighter uppercase font-black">
+          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.1 }}>Secure.</motion.div>
+          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="ml-12 text-on-surface/20">Predictive.</motion.div>
+          <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.3 }} className="ml-6 text-glow">Unyielding.</motion.div>
+
+          {/* Floating Stat Chips */}
+          <div className="mt-16 grid grid-cols-2 gap-4 max-w-sm">
+            <div className="bg-surface-container-high/40 backdrop-blur-xl p-4 glow-border flex flex-col gap-1">
+              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest">Uptime</span>
+              <span className="text-xl font-mono text-primary">99.998%</span>
+            </div>
+            <div className="bg-surface-container-high/40 backdrop-blur-xl p-4 border border-outline-variant/20 flex flex-col gap-1">
+              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest">Latency</span>
+              <span className="text-xl font-mono text-on-surface">14ms</span>
+            </div>
+          </div>
         </div>
 
-        {/* Decorative Visual Overlay */}
-        <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-[#00dbe9]/5 blur-[120px] rounded-full pointer-events-none"></div>
+        <div className="relative z-10 flex justify-between items-end">
+          <div className="space-y-1">
+            <p className="font-mono text-[10px] text-primary uppercase tracking-[0.2em] font-bold">NEURAL_SHIELD_ACTIVE</p>
+            <p className="font-mono text-[9px] text-on-surface-variant/40 uppercase">Encrypted Handshake Protocol v2.4</p>
+          </div>
+          <div className="font-mono text-[10px] text-on-surface-variant/40">© 2026 SENTINEL_CORP</div>
+        </div>
       </section>
 
-      {/* RIGHT PANEL (45%): Transactional Logic */}
-      <section className="w-full lg:w-[45%] bg-[#121317] flex flex-col p-8 md:p-16 lg:p-24 justify-center relative border-l border-[#3b494b]/20">
+      {/* RIGHT PANEL */}
+      <section className="w-full lg:w-[45%] bg-surface flex flex-col p-8 md:p-16 lg:p-24 justify-center relative">
         <div className="max-w-[420px] w-full mx-auto relative">
           
-          {/* Tab Switcher */}
-          <nav className="flex w-full bg-[#1a1b20] mb-12 relative h-12 items-center p-1">
-            <button className="flex-1 text-center font-sans text-sm font-medium text-[#dbfcff] z-10 py-2">
+          <nav className="flex w-full mb-12 relative h-12 items-center bg-surface-container-low">
+            <button className={`flex-1 text-center font-sans text-sm font-medium z-10 py-3 transition-colors ${activeTab === 'signin' ? 'text-on-surface' : 'text-on-surface-variant hover:text-on-surface'}`}
+                onClick={() => { setActiveTab('signin'); setError(null) }}>
               Sign in
             </button>
-            <button className="flex-1 text-center font-sans text-sm font-medium text-[#b9cacb] z-10 py-2 hover:text-[#e3e2e7] transition-colors"
-                onClick={() => setError("Self-signup is disabled in this environment. Please request an access key.")}>
+            <button className={`flex-1 text-center font-sans text-sm font-medium z-10 py-3 transition-colors ${activeTab === 'create' ? 'text-on-surface' : 'text-on-surface-variant hover:text-on-surface'}`}
+                onClick={() => { setActiveTab('create'); setError(null) }}>
               Create account
             </button>
-            <div className="absolute left-1 top-1 w-[calc(50%-4px)] h-[calc(100%-8px)] bg-[#343439] transition-all duration-300 pointer-events-none"></div>
+            <div className="absolute top-0 bottom-0 w-1/2 bg-surface-container-highest transition-transform duration-300" style={{ transform: `translateX(${activeTab === 'signin' ? '0%' : '100%'})` }} />
           </nav>
 
-          <div className="space-y-2 mb-10">
-            <h2 className="text-2xl font-sans font-semibold text-[#e3e2e7] tracking-tight">Welcome back</h2>
-            <div className="flex items-center gap-2 text-[13px] text-[#b9cacb]">
-              <span>Sign in to your secure sentinel workspace.</span>
-              <div className="flex items-center gap-1 bg-[#343439]/30 px-1.5 py-0.5 text-[9px] font-mono border border-[#3b494b]/30">
-                <span className="tracking-tighter">SENTINEL_SECURE</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Social Logins */}
-          <div className="grid grid-cols-3 gap-3 mb-8">
-            <button onMouseEnter={() => setType('hover')} onMouseLeave={() => setType('default')} onClick={() => handleOAuthLogin('github')} className="flex items-center justify-center py-3 bg-transparent hover:bg-[#1a1b20] transition-all group" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <svg className="w-5 h-5 text-[#b9cacb] group-hover:text-[#e3e2e7]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path>
-              </svg>
-            </button>
-            <button onMouseEnter={() => setType('hover')} onMouseLeave={() => setType('default')} onClick={() => handleOAuthLogin('google')} className="flex items-center justify-center py-3 bg-transparent hover:bg-[#1a1b20] transition-all group" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <svg className="w-5 h-5 text-[#b9cacb] group-hover:text-[#e3e2e7]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12.48 10.92V14.5h6.64c-.28 1.57-1.74 4.59-6.64 4.59-4.22 0-7.66-3.48-7.66-7.79s3.44-7.79 7.66-7.79c2.4 0 4 .99 4.92 1.87l2.79-2.79C18.4 1.03 15.63 0 12.48 0 5.58 0 0 5.58 0 12.48s5.58 12.48 12.48 12.48c7.2 0 12-5.06 12-12.2 0-.82-.09-1.44-.21-2.07l-11.79.01z"></path>
-              </svg>
-            </button>
-            <button onMouseEnter={() => setType('hover')} onMouseLeave={() => setType('default')} onClick={() => handleOAuthLogin('microsoft')} className="flex items-center justify-center py-3 bg-transparent hover:bg-[#1a1b20] transition-all group" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}>
-              <svg className="w-5 h-5 text-[#b9cacb] group-hover:text-[#e3e2e7]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"></path>
-              </svg>
-            </button>
-          </div>
-
-          <div className="relative flex items-center mb-8">
-            <div className="flex-grow border-t border-[#3b494b]/20"></div>
-            <span className="flex-shrink mx-4 font-mono text-[10px] uppercase tracking-widest text-[#b9cacb]/60">or continue with email</span>
-            <div className="flex-grow border-t border-[#3b494b]/20"></div>
-          </div>
-
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {error && (
-                <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="flex items-start gap-2 p-3 text-sm bg-[#93000a]/20 text-[#ffb4ab]" style={{ boxShadow: 'inset 0 0 0 1px rgba(255, 180, 171, 0.2)' }}
-                >
-                <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                <p>{error}</p>
-                </motion.div>
-            )}
-
-            <div>
-              <label className="block font-mono text-[11px] uppercase tracking-widest text-[#b9cacb] mb-2">Username</label>
-              <input 
-                autoFocus 
-                className="w-full bg-[#343439] border-0 focus:ring-0 px-4 py-3 text-[#e3e2e7] font-sans text-sm placeholder:text-[#b9cacb]/30 outline-none" 
-                style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}
-                onFocus={(e) => e.target.style.boxShadow = 'inset 0 0 0 1px rgba(219, 252, 255, 0.3)'}
-                onBlur={(e) => e.target.style.boxShadow = 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)'}
-                placeholder="OPERATOR_ID" 
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <div className="flex justify-between mb-2">
-                <label className="block font-mono text-[11px] uppercase tracking-widest text-[#b9cacb]">Password</label>
-                <a className="font-mono text-[11px] text-[#dbfcff] hover:underline uppercase tracking-widest" href="#">Forgot?</a>
-              </div>
-              <div className="relative">
-                <input 
-                  className="w-full bg-[#343439] border-0 focus:ring-0 px-4 py-3 text-[#e3e2e7] font-sans text-sm outline-none" 
-                  style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }}
-                  onFocus={(e) => e.target.style.boxShadow = 'inset 0 0 0 1px rgba(219, 252, 255, 0.3)'}
-                  onBlur={(e) => e.target.style.boxShadow = 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)'}
-                  placeholder="••••••••••••" 
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-                <button 
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#b9cacb] hover:text-[#e3e2e7]" 
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <button 
-              className="w-full py-4 bg-[#dbfcff] text-[#00363a] font-sans font-bold uppercase tracking-widest text-xs hover:bg-[#7df4ff] transition-all duration-300 shadow-[0_0_20px_rgba(219,252,255,0.15)] flex items-center justify-center gap-2 group relative" 
-              type="submit"
-              disabled={loading}
-              onMouseEnter={() => setType('hover')}
-              onMouseLeave={() => setType('default')}
-            >
-              <span className={`transition-opacity tracking-widest flex items-center gap-2 uppercase ${loading ? 'opacity-0' : 'opacity-100'}`}>
-                Sign in to Sentinel <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-              </span>
-              {loading && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="animate-spin" size={18} />
+          <AnimatePresence mode="wait">
+            {activeTab === 'signin' ? (
+              <motion.div key="signin" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
+                <div className="space-y-2 mb-10">
+                  <h2 className="text-[22px] font-sans font-semibold tracking-tight">Welcome back</h2>
+                  <div className="flex items-center gap-2 text-[13px] text-on-surface-variant">
+                    <span>Sign in to your secure sentinel workspace.</span>
+                    <div className="flex items-center gap-1 bg-surface-container-highest/30 px-1.5 py-0.5 border border-outline-variant/30 text-on-surface">
+                      <Lock size={10} />
+                      <span className="mono-label tracking-tighter">SENTINEL_SECURE</span>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </button>
-          </form>
 
-          <div className="mt-12 pt-8 border-t border-[#3b494b]/10 text-center">
-            <p className="text-[12px] text-[#b9cacb]">
-              New deployment? 
-              <button 
-                className="text-[#dbfcff] hover:underline font-medium ml-1" 
-                onClick={() => {
-                  const el = document.getElementById('request-access-dialog');
-                  if (el) el.classList.remove('hidden');
-                }}
-              >
-                Request access key
-              </button>
-            </p>
-          </div>
-        </div>
+                <div className="grid grid-cols-3 gap-3 mb-8">
+                  {['github', 'google', 'microsoft'].map(provider => {
+                    const enabled = settings?.[`${provider}_enabled`] !== false
+                    return (
+                      <button key={provider} disabled={!enabled} title={!enabled ? "Configure in Settings → Integrations" : ""} onClick={() => handleOAuthLogin(provider)} className={`flex items-center justify-center py-3 bg-transparent transition-all group ghost-border ${enabled ? 'hover:bg-surface-container-low cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                        {provider === 'github' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>}
+                        {provider === 'google' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M12.48 10.92V14.5h6.64c-.28 1.57-1.74 4.59-6.64 4.59-4.22 0-7.66-3.48-7.66-7.79s3.44-7.79 7.66-7.79c2.4 0 4 .99 4.92 1.87l2.79-2.79C18.4 1.03 15.63 0 12.48 0 5.58 0 0 5.58 0 12.48s5.58 12.48 12.48 12.48c7.2 0 12-5.06 12-12.2 0-.82-.09-1.44-.21-2.07l-11.79.01z"></path></svg>}
+                        {provider === 'microsoft' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"></path></svg>}
+                      </button>
+                    )
+                  })}
+                </div>
 
-        <div className="absolute bottom-6 right-8 opacity-40 pointer-events-none hidden lg:block">
-          <span className="font-mono text-[10px] text-[#b9cacb] tracking-wider">v2.4.0-STABLE</span>
-        </div>
-        <div className="lg:hidden absolute bottom-8 left-0 right-0 text-center">
-          <span className="font-mono text-[11px] text-[#b9cacb] tracking-[0.3em] uppercase">Sentinel v2.4.0</span>
+                <div className="relative flex items-center mb-8">
+                  <div className="flex-grow border-t border-outline-variant/20"></div>
+                  <span className="flex-shrink mx-4 mono-label text-on-surface-variant/60 lowercase">or continue with email</span>
+                  <div className="flex-grow border-t border-outline-variant/20"></div>
+                </div>
+
+                <div className="bg-surface-container-lowest p-8 ghost-border">
+                  <form className="space-y-6" onSubmit={handleSubmit}>
+                    <div>
+                      <label className="block mono-label text-on-surface-variant mb-2">Username</label>
+                      <input autoFocus className="w-full bg-surface-container-highest border-0 focus:ring-0 px-4 py-3 text-on-surface font-mono text-sm placeholder:text-on-surface-variant/30 outline-none ghost-border ghost-border-focus" placeholder="OPERATOR_ID" type="text" value={username} onChange={e => setUsername(e.target.value)} required disabled={error?.type === 'locked'} />
+                    </div>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <label className="block mono-label text-on-surface-variant">Password</label>
+                        <button type="button" className="mono-label text-primary hover:underline" onClick={() => setShowForgot(true)}>Forgot?</button>
+                      </div>
+                      <div className="relative">
+                        <input className="w-full bg-surface-container-highest border-0 focus:ring-0 px-4 py-3 text-on-surface font-sans text-sm outline-none ghost-border ghost-border-focus" placeholder="••••••••••••" type={showPassword ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} required disabled={error?.type === 'locked'} />
+                        <button className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface" type="button" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {error && (
+                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} className={`p-4 border ${error.type === 'invalid' || error.type === 'network' ? 'bg-error-container/20 border-error/50 text-error' : 'bg-amber-900/20 border-amber-500/50 text-amber-400'}`}>
+                          <div className="mono-label mb-1 opacity-80">// {error.type === 'locked' ? 'ACCOUNT LOCKED' : error.type === 'network' ? 'CONNECTION REFUSED' : 'AUTHENTICATION FAILED'}</div>
+                          <div className="font-sans text-sm flex gap-2 items-center">
+                            <AlertCircle size={16} className="shrink-0" />
+                            <span>{error.msg} {error.type === 'locked' && error.unlockIn !== undefined ? formatLockout(error.unlockIn) : ''}</span>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <button className="w-full py-4 bg-primary text-on-primary font-sans font-bold uppercase tracking-widest text-xs hover:bg-primary-fixed transition-all phosphor-glow flex items-center justify-center gap-2 group relative disabled:opacity-50" type="submit" disabled={loading || error?.type === 'locked'}>
+                      <span className={`transition-opacity flex items-center gap-2 ${loading ? 'opacity-0' : 'opacity-100'}`}>
+                        Sign in to Sentinel <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                      </span>
+                      {loading && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="animate-spin" size={18} /> <span className="mono-label ml-2">AUTHENTICATING...</span></div>}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="mt-12 pt-8 border-t border-outline-variant/10 text-center">
+                  <p className="text-[12px] text-on-surface-variant font-sans">
+                    New deployment? 
+                    <button className="text-primary hover:underline font-medium ml-1" onClick={() => setShowAccess(true)}>Request access key</button>
+                  </p>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div key="create" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
+                {settings?.ALLOW_SELF_SIGNUP === false ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-16 h-16 rounded-full bg-surface-container-highest flex items-center justify-center mb-6 text-on-surface-variant"><Lock size={32} /></div>
+                    <h2 className="text-lg font-mono tracking-tight text-on-surface mb-2">ACCOUNT CREATION RESTRICTED</h2>
+                    <p className="text-sm font-sans text-on-surface-variant">Contact your administrator to request access.</p>
+                  </div>
+                ) : (
+                  <form className="space-y-5" onSubmit={handleSubmit}>
+                    <div>
+                      <label className="block mono-label text-on-surface-variant mb-2">Username</label>
+                      <input className="w-full bg-surface-container-highest border-0 px-4 py-3 text-on-surface font-mono text-sm outline-none ghost-border ghost-border-focus" type="text" value={username} onChange={e => setUsername(e.target.value)} required />
+                    </div>
+                    <div>
+                      <label className="block mono-label text-on-surface-variant mb-2">Email</label>
+                      <input className="w-full bg-surface-container-highest border-0 px-4 py-3 text-on-surface font-mono text-sm outline-none ghost-border ghost-border-focus" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+                    </div>
+                    <div>
+                      <label className="block mono-label text-on-surface-variant mb-2">Password</label>
+                      <input className="w-full bg-surface-container-highest border-0 px-4 py-3 text-on-surface font-sans text-sm outline-none ghost-border ghost-border-focus" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+                      <div className="flex gap-1 mt-3">
+                        {[1,2,3,4,5].map(i => <div key={i} className={`h-1 flex-1 rounded-full ${i <= passStrength ? (passStrength < 3 ? 'bg-error' : passStrength < 5 ? 'bg-amber-400' : 'bg-primary') : 'bg-surface-container-highest'}`} />)}
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        {[{ l: '8+ chars', v: password.length > 7 }, { l: 'Uppercase', v: /[A-Z]/.test(password) }, { l: 'Lowercase', v: /[a-z]/.test(password) }, { l: 'Number', v: /[0-9]/.test(password) }, { l: 'Special', v: /[^A-Za-z0-9]/.test(password) }].map((req, i) => (
+                          <div key={i} className={`flex items-center gap-2 text-[11px] font-mono ${req.v ? 'text-primary' : 'text-on-surface-variant/50'}`}>
+                            {req.v ? <Check size={12} /> : <div className="w-3 h-3 border border-current rounded-full" />} {req.l}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <button className="w-full mt-6 py-4 bg-primary text-on-primary font-sans font-bold uppercase tracking-widest text-xs hover:bg-primary-fixed transition-all" type="submit" disabled={loading || passStrength < 3}>Create account</button>
+                  </form>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </section>
 
-      {/* Basic dialog for request access */}
-      <div className="fixed inset-0 z-[100] hidden flex items-center justify-center p-4" id="request-access-dialog">
-        <div 
-          className="absolute inset-0 bg-[#121317]/80 backdrop-blur-sm" 
-          onClick={() => {
-            const el = document.getElementById('request-access-dialog');
-            if (el) el.classList.add('hidden');
-          }}
-        ></div>
-        <div className="relative bg-[#1a1b20] w-full max-w-md border border-[#3b494b]/30 p-8">
-          <h3 className="text-xl font-sans font-semibold mb-4 text-[#dbfcff]">Request Access</h3>
-          <p className="text-sm text-[#b9cacb] mb-6">Enter your organization email. A system administrator will review your credentials within 24 hours.</p>
-          <input className="w-full bg-[#343439] border-0 px-4 py-3 text-[#e3e2e7] font-sans text-sm mb-6 outline-none" style={{ boxShadow: 'inset 0 0 0 1px rgba(132, 148, 149, 0.2)' }} placeholder="admin@org.com" type="email" />
-          <div className="flex justify-end gap-4">
-            <button 
-              className="font-mono text-[12px] uppercase tracking-widest text-[#b9cacb] hover:text-[#e3e2e7]" 
-              onClick={() => {
-                const el = document.getElementById('request-access-dialog');
-                if (el) el.classList.add('hidden');
-              }}
-            >
-              Cancel
-            </button>
-            <button className="bg-[#dbfcff] text-[#00363a] px-6 py-2 font-mono text-[12px] uppercase tracking-widest font-bold">Submit Request</button>
+      {/* DIALOGS */}
+      <AnimatePresence>
+        {showForgot && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-surface/80 backdrop-blur-sm" onClick={() => setShowForgot(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-surface-container-low w-full max-w-md p-8 ghost-border">
+              <h3 className="text-xl font-mono mb-4 text-on-surface uppercase tracking-widest">Forgot Password</h3>
+              <form onSubmit={handleForgotPassword}>
+                <input className="w-full bg-surface-container-highest px-4 py-3 text-on-surface font-mono text-sm mb-6 outline-none ghost-border ghost-border-focus" placeholder="Enter your email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+                <div className="flex justify-end gap-4">
+                  <button type="button" className="mono-label text-on-surface-variant hover:text-on-surface" onClick={() => setShowForgot(false)}>Cancel</button>
+                  <button type="submit" className="bg-primary text-on-primary px-6 py-2 mono-label font-bold">Send reset link</button>
+                </div>
+              </form>
+            </motion.div>
           </div>
-        </div>
-      </div>
+        )}
+
+        {showAccess && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-surface/80 backdrop-blur-sm" onClick={() => setShowAccess(false)} />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-surface-container-low w-full max-w-md p-8 ghost-border">
+              <h3 className="text-xl font-mono mb-6 text-on-surface uppercase tracking-widest">Request Access</h3>
+              <form onSubmit={(e) => {
+                const fd = new FormData(e.currentTarget);
+                handleRequestAccess(e, fd.get('email') as string, fd.get('name') as string, fd.get('reason') as string);
+              }}>
+                <input name="name" className="w-full bg-surface-container-highest px-4 py-3 text-on-surface font-mono text-sm mb-4 outline-none ghost-border ghost-border-focus" placeholder="Name" type="text" required />
+                <input name="email" className="w-full bg-surface-container-highest px-4 py-3 text-on-surface font-mono text-sm mb-4 outline-none ghost-border ghost-border-focus" placeholder="Email" type="email" required />
+                <textarea name="reason" className="w-full bg-surface-container-highest px-4 py-3 text-on-surface font-mono text-sm mb-6 outline-none ghost-border ghost-border-focus resize-none h-24" placeholder="Reason for access" required></textarea>
+                <div className="flex justify-end gap-4">
+                  <button type="button" className="mono-label text-on-surface-variant hover:text-on-surface" onClick={() => setShowAccess(false)}>Cancel</button>
+                  <button type="submit" className="bg-primary text-on-primary px-6 py-2 mono-label font-bold">Submit Request</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </main>
   )
 }

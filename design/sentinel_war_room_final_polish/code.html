@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=Space+Grotesk:wght@700&amp;family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "on-primary-fixed": "#002022",
+            "inverse-surface": "#e3e2e7",
+            "on-secondary-fixed": "#1a1b23",
+            "error": "#ffb4ab",
+            "tertiary": "#fff3f1",
+            "on-error-container": "#ffdad6",
+            "tertiary-container": "#ffcec7",
+            "surface-dim": "#121317",
+            "on-primary-fixed-variant": "#004f54",
+            "surface-variant": "#343439",
+            "surface": "#121317",
+            "secondary-fixed-dim": "#c6c5d0",
+            "surface-container-lowest": "#0d0e12",
+            "primary-fixed": "#7df4ff",
+            "surface-container-low": "#1a1b20",
+            "secondary": "#c6c5d0",
+            "inverse-on-surface": "#2f3035",
+            "surface-container": "#1f1f24",
+            "on-primary": "#00363a",
+            "outline-variant": "#3b494b",
+            "on-secondary-fixed-variant": "#45464f",
+            "on-background": "#e3e2e7",
+            "on-secondary": "#2f3038",
+            "surface-container-high": "#292a2e",
+            "inverse-primary": "#006970",
+            "error-container": "#93000a",
+            "secondary-fixed": "#e3e1ed",
+            "primary": "#dbfcff",
+            "outline": "#849495",
+            "on-surface": "#e3e2e7",
+            "primary-container": "#00f0ff",
+            "on-tertiary-container": "#c1000a",
+            "on-surface-variant": "#b9cacb",
+            "surface-tint": "#00dbe9",
+            "surface-bright": "#38393d",
+            "on-secondary-container": "#bbbbc6",
+            "tertiary-fixed-dim": "#ffb4aa",
+            "on-tertiary": "#690003",
+            "primary-fixed-dim": "#00dbe9",
+            "tertiary-fixed": "#ffdad5",
+            "secondary-container": "#4a4b54",
+            "on-tertiary-fixed-variant": "#930005",
+            "on-tertiary-fixed": "#410001",
+            "background": "#121317",
+            "surface-container-highest": "#343439",
+            "on-error": "#690005",
+            "on-primary-container": "#006970"
+          },
+          fontFamily: {
+            "headline": ["Space Grotesk", "sans-serif"],
+            "body": ["Inter", "sans-serif"],
+            "label": ["Inter", "sans-serif"],
+            "mono": ["DM Mono", "monospace"]
+          },
+          borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 1.25rem;
+    }
+    .scanner-line {
+      background: linear-gradient(to bottom, transparent, #dbfcff, transparent);
+      height: 100px;
+      width: 100%;
+      position: absolute;
+      top: -100px;
+      opacity: 0.1;
+      animation: scan 8s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes scan {
+      0% { top: -100px; }
+      100% { top: 100%; }
+    }
+    .pulse-red {
+      animation: pulse-red-animation 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulse-red-animation {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+    .text-pulse {
+      animation: text-pulse-animation 1.5s ease-in-out infinite;
+    }
+    @keyframes text-pulse-animation {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .crt-scanlines::after {
+      content: " ";
+      display: block;
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      z-index: 2;
+      background-size: 100% 4px, 3px 100%;
+      pointer-events: none;
+    }
+    .mono-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background font-body selection:bg-primary selection:text-on-primary-fixed overflow-hidden h-screen flex flex-col">
+<!-- Shared Component: TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 h-16 sticky top-0 z-50 bg-[#121317] dark:bg-[#121317] border-none">
+<div class="flex items-center gap-8">
+<div class="text-xl font-mono tracking-widest text-[#dbfcff] dark:text-[#dbfcff]">SENTINEL</div>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-[#dbfcff] border-b-2 border-[#dbfcff] pb-1 mono-label" href="#">WAR ROOM</a>
+<a class="text-[#e3e2e7]/60 mono-label hover:bg-[#292a2e] hover:text-[#dbfcff] transition-colors duration-150 px-2 py-1" href="#">METRICS</a>
+<a class="text-[#e3e2e7]/60 mono-label hover:bg-[#292a2e] hover:text-[#dbfcff] transition-colors duration-150 px-2 py-1" href="#">TIMELINE</a>
+<a class="text-[#e3e2e7]/60 mono-label hover:bg-[#292a2e] hover:text-[#dbfcff] transition-colors duration-150 px-2 py-1" href="#">ASSETS</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant/60 hover:text-on-surface mono-label px-3 py-2 transition-colors">
+  CLOSE WAR ROOM
+</button>
+<div class="flex gap-4 mr-4 items-center">
+<span class="material-symbols-outlined text-[#e3e2e7]/60 hover:text-[#dbfcff] cursor-pointer">notifications</span>
+<span class="material-symbols-outlined text-[#e3e2e7]/60 hover:text-[#dbfcff] cursor-pointer">settings</span>
+<span class="material-symbols-outlined text-[#e3e2e7]/60 hover:text-[#dbfcff] cursor-pointer">help</span>
+</div>
+<button class="bg-primary text-on-primary px-4 py-2 mono-label font-bold tracking-tight hover:opacity-80 transition-all active:scale-[0.99]">
+        DECLARE INCIDENT
+      </button>
+</div>
+<div class="bg-[#1a1b20] h-px w-full absolute bottom-0 left-0"></div>
+</header>
+<!-- War Room Toolbar (Secondary Header) -->
+<div class="bg-surface-container-lowest border-b border-outline-variant/20 px-6 py-3 flex items-center justify-between">
+<div class="flex items-center gap-8 font-mono">
+<div class="flex flex-col">
+<span class="text-on-surface-variant mono-label">INCIDENT_ID</span>
+<span class="text-primary text-sm">0XINC-84920</span>
+</div>
+<div class="flex flex-col">
+<span class="text-on-surface-variant mono-label">SEVERITY</span>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 bg-error pulse-red rounded-full shadow-[0_0_8px_rgba(255,180,171,0.6)]"></span>
+<span class="text-error font-bold text-sm drop-shadow-[0_0_10px_rgba(255,180,171,0.3)]">CRITICAL</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="text-on-surface-variant mono-label">STATUS</span>
+<span class="text-on-surface text-sm">ACTIVE</span>
+</div>
+<div class="flex flex-col">
+<span class="text-on-surface-variant mono-label">ELAPSED</span>
+<span class="text-on-surface tabular-nums text-sm">00:24:12</span>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-high text-on-surface px-4 py-2 mono-label tracking-wider hover:bg-surface-bright transition-colors">ACKNOWLEDGE</button>
+<button class="bg-surface-container-high text-on-surface px-4 py-2 mono-label tracking-wider hover:bg-surface-bright transition-colors">DECLARE RESOLVED</button>
+<button class="bg-error-container text-on-error-container px-4 py-2 mono-label tracking-wider hover:opacity-90 transition-opacity">ESCAPE WAR ROOM</button>
+</div>
+</div>
+<main class="flex-1 flex overflow-hidden relative">
+<div class="scanner-line"></div>
+<!-- Left Column: Context -->
+<section class="w-[30%] bg-surface flex flex-col border-r border-outline-variant/10 overflow-y-auto">
+<div class="p-6 space-y-8">
+<div>
+<h2 class="mono-label text-on-surface-variant tracking-[0.2em] mb-4">Incident Context</h2>
+<div class="space-y-4">
+<div class="p-4 bg-surface-container-low">
+<span class="block mono-label text-on-surface-variant mb-1">Primary Service</span>
+<span class="text-primary font-mono text-lg tracking-tight">payments-api</span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="p-4 bg-surface-container-low">
+<span class="block mono-label text-on-surface-variant mb-1">Cluster</span>
+<span class="text-on-surface font-mono text-sm">us-east-1</span>
+</div>
+<div class="p-4 bg-surface-container-low">
+<span class="block mono-label text-on-surface-variant mb-1">Region</span>
+<span class="text-on-surface font-mono text-sm">N. Virginia</span>
+</div>
+</div>
+</div>
+</div>
+<div>
+<h2 class="mono-label text-on-surface-variant tracking-[0.2em] mb-4">Anomaly Summary</h2>
+<div class="p-6 bg-surface-container-lowest border-l-2 border-error">
+<p class="text-on-surface leading-relaxed text-sm">
+              Detected 98% drop in successful transactions across all payment gateways. Response latency increased from 120ms to 4500ms. Error code <span class="text-error font-mono">503_SERVICE_UNAVAILABLE</span> is dominant.
+            </p>
+</div>
+</div>
+<div>
+<h2 class="mono-label text-on-surface-variant tracking-[0.2em] mb-4">RCA Pipeline</h2>
+<div class="space-y-2">
+<div class="flex items-center justify-between p-3 bg-surface-container-high">
+<span class="mono-label">RCA Status</span>
+<span class="text-primary font-mono text-xs text-pulse">INVESTIGATING...</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-2 px-3 py-1">
+<span class="material-symbols-outlined text-green-400 text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="mono-label text-on-surface-variant">Network Layer: OK</span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1">
+<span class="material-symbols-outlined text-green-400 text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="mono-label text-on-surface-variant">Auth Provider: OK</span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1">
+<span class="material-symbols-outlined text-error text-sm" style="font-variation-settings: 'FILL' 1;">error</span>
+<span class="mono-label text-on-surface-variant">Database Connection: TIMEOUT</span>
+</div>
+</div>
+</div>
+</div>
+<div class="pt-8">
+<img class="w-full h-32 object-cover opacity-20 grayscale filter sepia contrast-125" data-alt="Technical schematic or circuit pattern background in deep teal and black representing low-level system architecture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB789YX52I60GHvVDyDlpAuDh9JzE3syndcTPoZOnczWBtqT9WxQHRpnqefJrknY0ZPy4QHtqEl42MylF-1Zt_DLuN3bqM4hl_AsS3V2IncAVW2neLe5XXrV7c5jdbMeP_x2wVojX3zhRlk6Drj2We4Pgz53chdGW9BsTDXAedL620lRXVc_DDmxteERS7FfITg6NSKIhdximf5BkZW3AEcjN9iuKbnzj7o5saO3tBrVkoLXE9-jQ_O2WjUgqS2Kx-rn3p9GIYQIDU"/>
+</div>
+</div>
+</section>
+<!-- Middle Column: Metrics -->
+<section class="w-[45%] bg-surface-container-low flex flex-col overflow-y-auto border-r border-outline-variant/10">
+<div class="p-6 space-y-6">
+<div class="flex justify-between items-end">
+<h2 class="mono-label text-on-surface-variant tracking-[0.2em]">Real-time Telemetry</h2>
+<span class="mono-label text-primary">REFRESH RATE: 1000MS</span>
+</div>
+<!-- Metric Card 1: Success Rate -->
+<div class="bg-surface p-6 relative">
+<div class="flex justify-between mb-4">
+<div>
+<span class="block mono-label text-on-surface-variant">Transaction Success Rate</span>
+<span class="text-2xl font-mono text-error">1.82%</span>
+</div>
+<div class="text-right">
+<span class="block mono-label text-on-surface-variant">Baseline</span>
+<span class="text-on-surface/40 font-mono text-sm">99.98%</span>
+</div>
+</div>
+<div class="h-40 w-full bg-surface-container-lowest overflow-hidden relative crt-scanlines">
+<!-- Mock SVG Chart -->
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 400 100">
+<path d="M0 10 L40 12 L80 15 L120 18 L160 85 L200 92 L240 94 L280 91 L320 93 L360 95 L400 94" fill="none" stroke="#ffb4ab" stroke-width="2"></path>
+<path d="M0 10 L40 12 L80 15 L120 18 L160 85 L200 92 L240 94 L280 91 L320 93 L360 95 L400 94 V 100 H 0 Z" fill="url(#grad1)"></path>
+<defs>
+<lineargradient id="grad1" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" style="stop-color:#ffb4ab;stop-opacity:0.2"></stop>
+<stop offset="100%" style="stop-color:#ffb4ab;stop-opacity:0"></stop>
+</lineargradient>
+</defs>
+</svg>
+<div class="absolute inset-0 grid grid-cols-12 pointer-events-none opacity-5">
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+<div class="border-r border-on-surface h-full"></div>
+</div>
+</div>
+</div>
+<!-- Metric Card 2: Concurrent Errors -->
+<div class="bg-surface p-6 relative">
+<div class="flex justify-between mb-4">
+<div>
+<span class="block mono-label text-on-surface-variant">Concurrent Error Count</span>
+<span class="text-2xl font-mono text-primary">12.4k / sec</span>
+</div>
+<div class="text-right">
+<span class="block mono-label text-on-surface-variant">Threshold</span>
+<span class="text-on-surface/40 font-mono text-sm">0.05k</span>
+</div>
+</div>
+<div class="h-40 w-full bg-surface-container-lowest overflow-hidden relative crt-scanlines">
+<!-- Mock SVG Chart Spike -->
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 400 100">
+<path d="M0 98 L40 97 L80 98 L120 98 L160 20 L200 15 L240 10 L280 18 L320 12 L360 8 L400 5" fill="none" stroke="#dbfcff" stroke-width="2"></path>
+<path d="M0 98 L40 97 L80 98 L120 98 L160 20 L200 15 L240 10 L280 18 L320 12 L360 8 L400 5 V 100 H 0 Z" fill="url(#grad2)"></path>
+<defs>
+<lineargradient id="grad2" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" style="stop-color:#dbfcff;stop-opacity:0.2"></stop>
+<stop offset="100%" style="stop-color:#dbfcff;stop-opacity:0"></stop>
+</lineargradient>
+</defs>
+</svg>
+</div>
+</div>
+<!-- High Density Data Table -->
+<div class="bg-surface overflow-hidden">
+<div class="p-4 border-b border-outline-variant/10">
+<h3 class="mono-label text-on-surface-variant tracking-widest">Active Thread Logs</h3>
+</div>
+<table class="w-full text-left font-mono text-[0.6875rem]">
+<thead class="bg-surface-container-highest text-on-surface-variant">
+<tr>
+<th class="px-4 py-2 font-normal mono-label">Thread_ID</th>
+<th class="px-4 py-2 font-normal mono-label">Latency</th>
+<th class="px-4 py-2 font-normal mono-label">State</th>
+<th class="px-4 py-2 font-normal mono-label">Gateway</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-primary/5">
+<td class="px-4 py-2 text-primary">#TX-9281</td>
+<td class="px-4 py-2">4502ms</td>
+<td class="px-4 py-2"><span class="bg-error/10 text-error px-1 mono-label">STALLED</span></td>
+<td class="px-4 py-2 text-on-surface-variant">STRIPE-US</td>
+</tr>
+<tr class="hover:bg-primary/5">
+<td class="px-4 py-2 text-primary">#TX-9282</td>
+<td class="px-4 py-2">510ms</td>
+<td class="px-4 py-2"><span class="bg-error/10 text-error px-1 mono-label">TIMEOUT</span></td>
+<td class="px-4 py-2 text-on-surface-variant">ADYEN-EU</td>
+</tr>
+<tr class="hover:bg-primary/5">
+<td class="px-4 py-2 text-primary">#TX-9283</td>
+<td class="px-4 py-2">3982ms</td>
+<td class="px-4 py-2"><span class="bg-error/10 text-error px-1 mono-label">STALLED</span></td>
+<td class="px-4 py-2 text-on-surface-variant">STRIPE-US</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<!-- Right Column: Timeline -->
+<section class="w-[25%] bg-surface flex flex-col overflow-hidden">
+<div class="p-6 h-full flex flex-col">
+<h2 class="mono-label text-on-surface-variant tracking-[0.2em] mb-6">Activity Timeline</h2>
+<div class="flex-1 overflow-y-auto space-y-6 pr-2 scrollbar-hide">
+<!-- Timeline Item -->
+<div class="relative pl-6 border-l border-outline-variant/30 pb-2">
+<div class="absolute -left-[5px] top-0 w-[9px] h-[9px] bg-primary"></div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-baseline">
+<span class="mono-label text-primary">14:24:01</span>
+<span class="mono-label text-on-surface-variant">OPERATOR-01</span>
+</div>
+<p class="text-[0.75rem] text-on-surface leading-tight">Acknowledged incident. Routing logs to War Room stream.</p>
+</div>
+</div>
+<!-- Timeline Item -->
+<div class="relative pl-6 border-l border-outline-variant/30 pb-2">
+<div class="absolute -left-[5px] top-0 w-[9px] h-[9px] bg-on-surface-variant"></div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-baseline">
+<span class="mono-label text-on-surface-variant">14:22:15</span>
+<span class="mono-label text-on-surface-variant">SYSTEM</span>
+</div>
+<p class="text-[0.75rem] text-on-surface-variant leading-tight">Slack alert sent to #incident-response.</p>
+</div>
+</div>
+<!-- Timeline Item -->
+<div class="relative pl-6 border-l border-outline-variant/30 pb-2">
+<div class="absolute -left-[5px] top-0 w-[9px] h-[9px] bg-primary-container"></div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-baseline">
+<span class="mono-label text-primary-container">14:18:50</span>
+<span class="mono-label text-on-surface-variant">GITHUB</span>
+</div>
+<p class="text-[0.75rem] text-on-surface leading-tight font-bold">New deployment detected: v2.4.19-rc. Branch: <span class="bg-surface-container-highest px-1">main</span></p>
+<div class="mt-2 text-[0.625rem] text-on-surface-variant bg-surface-container-low p-2 font-mono">
+                commit: 8f2a1b9 <br/>
+                author: dev-lead-alpha
+              </div>
+</div>
+</div>
+<!-- Timeline Item -->
+<div class="relative pl-6 border-l border-outline-variant/30 pb-2">
+<div class="absolute -left-[5px] top-0 w-[9px] h-[9px] bg-on-surface-variant"></div>
+<div class="flex flex-col gap-1">
+<div class="flex justify-between items-baseline">
+<span class="mono-label text-on-surface-variant">14:00:12</span>
+<span class="mono-label text-on-surface-variant">SYSTEM</span>
+</div>
+<p class="text-[0.75rem] text-on-surface-variant leading-tight">Anomaly detected. 500 series errors exceeding 5% threshold.</p>
+</div>
+</div>
+<!-- End of Timeline Indicator -->
+<div class="pl-6 border-l border-outline-variant/30 h-10 border-dashed"></div>
+</div>
+<!-- Timeline Input -->
+<div class="mt-6 pt-4 border-t border-outline-variant/20">
+<div class="flex gap-2">
+<input class="flex-1 bg-surface-container-high border-none text-[0.75rem] font-mono focus:ring-1 focus:ring-primary/30 placeholder:text-on-surface-variant/40" placeholder="ADD COMMENT..." type="text"/>
+<button class="bg-primary text-on-primary px-3 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">send</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Status Bar Footer -->
+<footer class="h-8 bg-surface-container-lowest border-t border-outline-variant/10 px-6 flex items-center justify-between text-[0.625rem] font-mono">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+<span class="text-on-surface-variant mono-label tracking-wider">Connection: Encrypted (v3.1)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant mono-label tracking-wider">Session: 88-XF-9021</span>
+</div>
+</div>
+<div class="text-on-surface-variant mono-label tracking-tighter opacity-50">
+      Sentinel Unified Command Interface // Build 0x772A
+    </div>
+</footer>
+</body></html>

@@ -43,8 +43,8 @@ export default function IncidentsPage() {
       <div className={`p-8 w-full flex-1 max-w-7xl mx-auto space-y-6 overflow-y-auto ${activeRcaId ? 'mr-0' : ''}`}>
         <motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-mono font-medium tracking-wide mb-1" style={{ color: 'var(--text-primary)' }}>
-              INCIDENT RESPONSE
+            <h1 className="text-3xl font-mono font-black tracking-tighter text-on-surface mb-1 uppercase">
+              ALERTS
             </h1>
             <p className="text-sm font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>
               DETECTED ANOMALIES & ACTIVE OUTAGES
@@ -81,7 +81,7 @@ export default function IncidentsPage() {
         {isLoading ? (
           <div className="grid grid-cols-1 gap-4">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-24 rounded border animate-pulse bg-white/5" style={{ borderColor: 'var(--border)' }} />
+              <div key={i} className="h-24 rounded border bg-white/5" style={{ borderColor: 'var(--border)' }} />
             ))}
           </div>
         ) : (
@@ -133,7 +133,7 @@ export default function IncidentsPage() {
                         <div className="flex flex-col">
                           <span className="text-[9px] font-mono uppercase tracking-widest text-muted mb-1">Status</span>
                           <span className="font-mono text-[10px] uppercase flex items-center gap-1.5" style={{ color: inc.status === 'active' ? 'var(--red)' : 'var(--emerald)' }}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${inc.status === 'active' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full ${inc.status === 'active' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]' : 'bg-emerald-500'}`} />
                             {inc.status}
                           </span>
                         </div>

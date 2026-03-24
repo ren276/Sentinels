@@ -73,6 +73,8 @@ export interface User {
   email: string
   role: 'admin' | 'operator' | 'viewer'
   is_active: boolean
+  provider?: string
+  avatar_url?: string
   created_at: string
   last_login: string | null
   failed_login_attempts: number
@@ -145,6 +147,7 @@ export interface WsIncidentEvent {
   service_id: string
   severity: 'critical' | 'warning' | 'info'
   status: string
+  created_at: string
 }
 
 export interface WsMetricUpdate {

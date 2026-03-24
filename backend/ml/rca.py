@@ -30,6 +30,11 @@ def build_rca_prompt(
 ) -> str:
     upstream = graph.get("upstream", [])
     downstream = graph.get("downstream", [])
+    
+    logs_snippet = "\n".join([f"  {line}" for line in logs[-20:]])
+    upstream_str = ", ".join(upstream) if upstream else "none"
+    downstream_str = ", ".join(downstream) if downstream else "none"
+
     return f"""You are a senior SRE analyzing a production incident.
 
 Service Under Analysis: {service}
@@ -37,8 +42,8 @@ Anomaly Score: {anomaly_score:.2f}/1.00
   (0.00=normal, 0.70=warning threshold, 1.00=critical)
 
 Service Dependencies:
-  Upstream (callers): {upstream or "none"}
-  Downstream (dependencies): {downstream or "none"}
+  Upstream (callers): {upstream_str}
+  Downstream (dependencies): {downstream_str}
 
 Current Metrics:
   P95 Latency:  {metrics.get("p95_latency_ms","N/A")}ms
@@ -49,7 +54,7 @@ Current Metrics:
   Req/sec:      {metrics.get("req_per_second","N/A")}
 
 Recent Log Lines (last 20):
-{chr(10).join(f"  {line}" for line in logs[-20:])}
+{logs_snippet}
 
 Provide a concise technical incident analysis:
 
@@ -244,6 +249,18 @@ async def rca_job_handler(
             "incident_id": incident_id,
             **final_payload
         })
+
+        # Send RCA to Slack for critical incidents
+        try:
+            from api.database import AsyncSessionLocal, get_incident_by_id
+            from alerting.slack import send_slack_alert
+            async with AsyncSessionLocal() as db:
+                incident = await get_incident_by_id(db, incident_id)
+                if incident and incident.get("severity") == "critical":
+                    log.info("rca_job.sending_to_slack", incident_id=incident_id)
+                    await send_slack_alert(incident, {}, accumulated)
+        except Exception as e:
+            log.warning("rca_job.slack_notification_failed", error=str(e))
 
     except Exception as exc:
         log.error("rca_job.failed", incident_id=incident_id, error=str(exc))

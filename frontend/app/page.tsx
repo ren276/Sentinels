@@ -5,270 +5,295 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { apiClient } from '@/lib/api'
 import { useWsStore } from '@/store/wsStore'
 import { useAuthStore } from '@/store/authStore'
-import { Shield, Target, Activity, Settings, Filter } from 'lucide-react'
-import { formatTimestamp, relativeTime, scoreColor } from '@/lib/utils'
+import { Shield, Target, Database, Activity, Filter, ArrowUp, ArrowDown, Bell, Globe, ShieldCheck } from 'lucide-react'
+import { LineChart, Line, ResponsiveContainer } from 'recharts'
 
 export default function OverviewPage() {
   const [isReal, setIsReal] = useState(true)
-  const [refreshCountdown, setRefreshCountdown] = useState(15)
+  const [time, setTime] = useState<Date | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [refreshCountdown, setRefreshCountdown] = useState(30)
+  
+  // API Connections
+  const { data: services = [] } = useQuery({ queryKey: ['services'], queryFn: () => apiClient.getServices().then(res => res.data?.data || res.data || []), refetchInterval: 30000 })
+  const { data: activeIncidents = [] } = useQuery({ queryKey: ['incidents', 'active'], queryFn: () => apiClient.getIncidents({ status: 'active', limit: 10 }).then(res => res.data?.data || res.data || []), refetchInterval: 10000 })
+  const { data: systemMetricsData } = useQuery({ queryKey: ['metrics', 'system-host'], queryFn: () => apiClient.getServiceMetrics('system-host', 60, 'all').then(res => res.data?.data || res.data || []), refetchInterval: 30000 })
 
-  const { data: services = [] } = useQuery({
-    queryKey: ['services'],
-    queryFn: () => apiClient.getServices().then(res => res.data),
-    refetchInterval: 15000,
-  })
-
-  const { data: incidents = [] } = useQuery({
-    queryKey: ['incidents', 'active'],
-    queryFn: () => apiClient.getIncidents({ status: 'active', limit: 10 }).then(res => res.data),
-    refetchInterval: 15000,
-  })
-
-  const { latestAnomalies, liveMetrics } = useWsStore()
+  const { latestAnomalies, connected, liveMetrics } = useWsStore()
   const { user } = useAuthStore()
 
   useEffect(() => {
+    setMounted(true)
+    setTime(new Date())
     const int = setInterval(() => {
-      setRefreshCountdown(v => (v <= 1 ? 15 : v - 1))
+      setTime(new Date())
+      setRefreshCountdown(v => (v <= 1 ? 30 : v - 1))
     }, 1000)
     return () => clearInterval(int)
   }, [])
 
-  // Aggregate metrics
-  const stats = useMemo(() => {
-    let cpuSum = 0, memSum = 0, p95Sum = 0, count = 0
-    Object.values(liveMetrics).forEach(m => {
-      cpuSum += m.cpu_usage || 0
-      memSum += m.mem_usage || 0
-      p95Sum += m.p95_latency_ms || 0
-      count++
-    })
-    
+  // Process system-host metrics
+  const systemMetrics = Array.isArray(systemMetricsData) ? systemMetricsData : []
+  const currentMetrics = useMemo(() => {
+    const latest = systemMetrics.length > 0 ? systemMetrics[systemMetrics.length - 1] : { cpu_usage: 0, mem_usage: 0, network_tx_bytes: 0, network_rx_bytes: 0 }
+    const sparklines = systemMetrics.slice(-30).map(m => ({
+      cpu: m.cpu_usage || 0,
+      mem: m.mem_usage || 0,
+      net: ((m.network_rx_bytes || 0) + (m.network_tx_bytes || 0)) / (1024 * 1024)
+    }))
+    const paddedSparklines = sparklines.length > 0 ? sparklines : Array.from({length: 30}).map(() => ({ cpu: 0, mem: 0, net: 0 }))
     return {
-      cpuAvg: count ? (cpuSum / count) * 100 : 0,
-      memAvg: count ? (memSum / count) * 100 : 0,
-      p95Avg: count ? p95Sum / count : 0,
-      nodes: services.length || 0
+      cpu: latest.cpu_usage || 0,
+      mem: latest.mem_usage || 0,
+      net: ((latest.network_rx_bytes || 0) + (latest.network_tx_bytes || 0)) / (1024 * 1024),
+      sparklines: paddedSparklines
     }
-  }, [liveMetrics, services])
+  }, [systemMetrics])
 
-  // Mock activity logs mixed with real incidents
-  const activityLogs = useMemo(() => {
-    const logs = incidents.slice(0, 4).map((i: any) => ({
-      type: i.severity.toUpperCase(),
-      time: new Date(i.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      msg: i.summary,
-      color: i.severity === 'critical' ? 'var(--red)' : 'var(--amber)'
+  const activityFeed = useMemo(() => {
+    const formatTime = (d: number) => new Date(d).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    const feed: any[] = []
+    const incidentData = Array.isArray(activeIncidents) ? activeIncidents : []
+    
+    incidentData.forEach((i: any) => feed.push({
+      id: `inc-${i.incident_id || i.id || Math.random()}`,
+      ts: new Date(i.created_at).getTime(),
+      timeStr: formatTime(new Date(i.created_at).getTime()),
+      level: i.severity === 'critical' ? 'error' : 'warning',
+      msg: `[INCIDENT] ${i.title || i.summary}`
     }))
     
-    // Pad with mock if not enough
-    if (logs.length < 4) {
-      logs.push({ type: 'AUTHENTICATION', time: '14:22:01', msg: 'User ADM-09 signed into US-WEST-1 node.', color: 'var(--blue)' })
-      logs.push({ type: 'NETWORK', time: '14:20:12', msg: 'Ingress peak reached: 842 MB/s. Scaling...', color: 'var(--text-muted)' })
-      logs.push({ type: 'DATABASE', time: '14:21:44', msg: 'Query optimization complete for CLUSTER_B.', color: 'var(--text-muted)' })
-      logs.push({ type: 'SECURITY', time: '14:18:55', msg: 'Unauthorized access attempt blocked from 45.22.1.92.', color: 'var(--red)' })
-    }
-    return logs.slice(0, 5)
-  }, [incidents])
+    latestAnomalies.forEach((a: any) => feed.push({
+      id: `anom-${a.timestamp || Math.random()}`,
+      ts: new Date(a.detected_at || Date.now()).getTime(),
+      timeStr: formatTime(new Date(a.detected_at || Date.now()).getTime()),
+      level: a.score > 0.8 ? 'error' : 'warning',
+      msg: `[ANOMALY] Service ${a.service_id} score ${a.score?.toFixed(2)}`
+    }))
+
+    return feed.slice(0, 50)
+  }, [activeIncidents, latestAnomalies])
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#121317] text-[#e3e2e7] font-sans selection:bg-[#dbfcff] selection:text-[#00363a]">
+    <div className="min-h-screen flex flex-col bg-surface text-on-surface font-sans antialiased overflow-hidden relative">
+      {/* Background Texture */}
+      <div className="fixed inset-0 dot-grid opacity-[0.05] pointer-events-none z-0" />
+
       {/* TopAppBar */}
-      <header className="sticky top-0 z-40 bg-[#121317]/80 backdrop-blur-md flex justify-between items-center px-8 py-6 border-b border-[#3b494b]/20">
+      <header className="fixed top-0 left-0 lg:left-64 right-0 z-50 bg-transparent flex justify-between items-center px-8 py-6">
         <div className="flex items-center gap-8">
-          <div className="text-[#dbfcff] font-mono tracking-tighter text-2xl hidden md:block">OVERVIEW</div>
-          
-          {/* Service Toggle */}
-          <div className="bg-[#1a1b20] p-1 flex items-center border border-[#3b494b]/30">
+          <div className="text-primary font-mono tracking-tighter text-2xl hidden md:block uppercase">DASHBOARD</div>
+          <div className="bg-surface-container-low p-1 flex items-center border border-outline-variant/30 relative z-10">
             <button 
               onClick={() => setIsReal(true)}
-              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${isReal ? 'bg-[#00f0ff] text-[#006970] font-bold' : 'text-[#b9cacb]/40 hover:text-[#e3e2e7]'}`}
-            >
-              REAL
-            </button>
+              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${isReal ? 'bg-primary-container text-on-primary-container font-bold' : 'text-on-surface-variant/40 hover:text-on-surface'}`}
+            > REAL </button>
             <button 
               onClick={() => setIsReal(false)}
-              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${!isReal ? 'bg-[#ffb4ab] text-[#690005] font-bold' : 'text-[#b9cacb]/40 hover:text-[#e3e2e7]'}`}
-            >
-              DEMO
-            </button>
+              className={`px-4 py-1 text-[10px] font-mono tracking-widest transition-all duration-200 ${!isReal ? 'bg-primary-container text-on-primary-container font-bold' : 'text-on-surface-variant/40 hover:text-on-surface'}`}
+            > DEMO </button>
           </div>
         </div>
 
         <div className="flex items-center gap-6">
-          {/* Refresh Countdown */}
-          <div className="hidden xl:flex items-center gap-2 px-3 py-1 bg-[#292a2e]/20 border border-[#3b494b]/10">
-            <span className="text-[9px] font-mono text-[#b9cacb]/60 uppercase tracking-[0.2em]">Refresh In:</span>
-            <span className="text-[10px] font-mono text-[#dbfcff] font-bold">{refreshCountdown}S</span>
+          <div className="hidden xl:flex items-center gap-2 px-3 py-1 bg-surface-container-high/20 border border-outline-variant/10">
+            <span className="text-[9px] font-mono text-on-surface-variant/60 uppercase tracking-[0.2em]">Refresh In:</span>
+            <span className="text-[10px] font-mono text-primary font-bold">{refreshCountdown}S</span>
           </div>
-          
-          {/* Online Users Indicator */}
-          <div className="flex items-center gap-2 px-3 py-1 bg-[#292a2e]/40 backdrop-blur-md border border-[#3b494b]/20">
-            <span className="w-1.5 h-1.5 bg-[#00f0ff] rounded-full animate-pulse"></span>
-            <span className="text-[10px] font-mono text-[#00dbe9] uppercase tracking-tighter">{stats.nodes} Active Nodes</span>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Activity className="text-[#00dbe9] cursor-pointer hover:scale-110 transition-transform" size={18} />
-            <div className="w-8 h-8 bg-[#343439] border border-[#3b494b]/30 flex items-center justify-center overflow-hidden">
-               <span className="font-mono text-xs uppercase text-[#dbfcff]">{user?.username?.substring(0, 2) || 'AD'}</span>
-            </div>
+
+          <div className="text-[14px] font-mono text-primary tracking-widest flex items-center gap-2">
+            <span>{mounted && time ? time.toLocaleTimeString('en-US', { hour12: false }) : '--:--:--'} UTC</span>
+            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-primary-container shadow-[0_0_8px_rgba(219,252,255,0.4)]' : 'bg-on-surface-variant'}`}></span>
           </div>
         </div>
       </header>
 
       {/* System Health Strip */}
-      <div className="px-8 py-4 bg-[#0d0e12] grid grid-cols-2 md:grid-cols-4 gap-8 items-center border-b border-[#3b494b]/10">
-        <HealthBar label="CPU LOAD" value={stats.cpuAvg || 42} suffix="%" />
-        <HealthBar label="MEM ALLOC" value={stats.memAvg || 68.2} suffix="%" color="#00f0ff" />
-        <HealthBar label="DISK I/O" value={isReal ? 12 : 24} suffix="ms" color="#ffb4ab" />
-        <HealthBar label="NET TRAFFIC" value={isReal ? 1.2 : 3.4} suffix="GB/s" color="#7df4ff" />
+      <div className="mt-24 px-8 py-4 bg-surface-container-lowest grid grid-cols-2 md:grid-cols-4 gap-8 items-center border-y border-outline-variant/10 relative z-10">
+        <HealthMeter 
+          label="CPU LOAD" 
+          value={Math.round((liveMetrics['system-host']?.cpu_usage || currentMetrics.cpu) * 100)} 
+        />
+        <HealthMeter 
+          label="MEM ALLOC" 
+          value={Math.round((liveMetrics['system-host']?.mem_usage || currentMetrics.mem) * 100)} 
+          unit="%" 
+        />
+        <HealthMeter 
+          label="DISK I/O" 
+          value={Math.round(liveMetrics['system-host']?.disk_latency || 12)} 
+          unit="ms" 
+          maxValue={50}
+        />
+        <HealthMeter 
+          label="NET TRAFFIC" 
+          value={Math.round(liveMetrics['system-host']?.net_throughput || currentMetrics.net)} 
+          unit="MB/s" 
+          maxValue={1000}
+        />
       </div>
 
-      {/* Content Grid */}
-      <div className="p-8 grid grid-cols-12 gap-6 flex-1">
-        {/* Hero Data Section */}
-        <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-          <div className="bg-[#1a1b20] p-8 relative overflow-hidden group border border-transparent hover:border-[#3b494b]/30 transition-colors">
-            <div className="absolute top-0 right-0 p-4 font-mono text-[8px] text-[#b9cacb]/20 tracking-widest">TRACE_ID: 0x9FA21</div>
-            
-            <div className="relative z-10 w-full">
-              <h1 className="text-5xl md:text-7xl font-mono tracking-tighter text-[#dbfcff] leading-[0.9] font-bold">
-                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5 }}>PREDICT</motion.div>
-                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 32, opacity: 1 }} transition={{ duration: 0.5, delay: 0.1 }}>FAILURES</motion.div>
-                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 16, opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>BEFORE</motion.div>
-                <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5, delay: 0.3 }} className="text-[#b9cacb]/30">THEY HAPPEN.</motion.div>
+      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar relative z-10">
+        <div className="grid grid-cols-12 gap-6">
+          
+          {/* Hero Section */}
+          <div className="col-span-12 lg:col-span-8 bg-surface-container-low p-8 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 font-mono text-[8px] text-on-surface-variant/20 tracking-widest">TRACE_ID: 0x9FA21</div>
+            <div className="relative z-10">
+              <h1 className="text-5xl md:text-7xl font-mono tracking-tighter text-primary leading-[1] font-bold">
+                <div className="ml-0">PREDICT</div>
+                <div className="ml-8 text-on-surface/40">FAILURES</div>
+                <div className="ml-4">BEFORE</div>
+                <div className="ml-0 text-on-surface-variant/30 text-glow">THEY HAPPEN.</div>
               </h1>
             </div>
-
-            {/* Live Data Stream Overlay */}
-            <div className="mt-12 border-t border-[#3b494b]/10 pt-6">
+            
+            <div className="mt-12 border-t border-outline-variant/10 pt-6">
               <div className="flex gap-4 overflow-hidden">
-                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#00dbe9]">
-                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Uptime</div>
-                  <div className="text-xl font-mono text-[#00dbe9]">99.998%</div>
+                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l-2 border-primary">
+                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Uptime</div>
+                  <div className="text-2xl font-mono text-primary font-bold">99.998%</div>
                 </div>
-                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#b9cacb]/30">
-                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Threats</div>
-                  <div className="text-xl font-mono text-[#e3e2e7]">0.02%</div>
+                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l border-on-surface-variant/30">
+                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Threats</div>
+                  <div className="text-2xl font-mono text-on-surface">0.00%</div>
                 </div>
-                <div className="flex-shrink-0 bg-[#292a2e] px-4 py-2 border-l border-[#b9cacb]/30">
-                  <div className="text-[9px] font-mono text-[#b9cacb] uppercase">Avg Latency</div>
-                  <div className="text-xl font-mono text-[#e3e2e7]">{stats.p95Avg.toFixed(1)}ms</div>
+                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l border-on-surface-variant/30">
+                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Latency</div>
+                  <div className="text-2xl font-mono text-on-surface">14ms</div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Bento Grid Sub-items */}
-          <div className="grid grid-cols-2 gap-6">
-            <div className="bg-[#1a1b20] p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-[#3b494b]/20 transition-all">
-              <div className="flex justify-between items-start">
-                <Shield className="text-[#00dbe9]" size={20} />
-                <span className="text-[10px] font-mono text-[#b9cacb]">SEC_MODULE</span>
-              </div>
-              <div className="mt-4 md:mt-0">
-                <div className="text-2xl font-mono text-[#e3e2e7] mb-1">ENCRYPTED</div>
-                <div className="text-[10px] font-mono uppercase text-[#00dbe9] tracking-widest">End-to-End Tunnel Active</div>
-              </div>
+          <div className="col-span-12 lg:col-span-4 bg-surface-container-highest/30 p-6 flex flex-col glow-border relative overflow-hidden h-[500px] lg:h-[600px] group/feed">
+            <div className="crt-scanlines absolute inset-0 opacity-[0.03] pointer-events-none" />
+            <div className="flex justify-between items-center mb-6 relative z-10">
+              <h3 className="text-sm font-sans font-bold uppercase tracking-widest text-primary">Activity Log</h3>
+              <span className="text-on-surface-variant text-[10px] font-mono opacity-40">0x4F2</span>
+            </div>
+            <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar relative z-10">
+              {activityFeed.length > 0 ? activityFeed.map((log) => (
+                <div key={log.id} className="p-3 bg-surface-container-lowest border-l border-primary/40 group hover:bg-surface-container-low transition-colors">
+                  <div className="flex justify-between text-[9px] font-mono mb-1">
+                    <span className="text-primary truncate">{log.msg.substring(0, 20)}</span>
+                    <span className="text-on-surface-variant shrink-0">{log.timeStr}</span>
+                  </div>
+                  <div className="text-[11px] text-on-surface-variant/80 truncate">{log.msg}</div>
+                </div>
+              )) : (
+                <div className="text-on-surface-variant/40 font-mono text-[10px] text-center mt-10 tracking-widest">NO_LOGS_DETECTED</div>
+              )}
             </div>
             
-            <div className="bg-[#1a1b20] p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-[#3b494b]/20 transition-all">
-              <div className="flex justify-between items-start">
-                <Target className="text-[#b9cacb]" size={20} />
-                <span className="text-[10px] font-mono text-[#b9cacb]">NODE_DIST</span>
-              </div>
-              <div className="mt-4 md:mt-0">
-                <div className="text-2xl font-mono text-[#e3e2e7] mb-1">GLOBAL</div>
-                <div className="text-[10px] font-mono uppercase text-[#b9cacb]/60 tracking-widest">{stats.nodes} Data Centers Online</div>
+            <div className="mt-auto pt-6 border-t border-outline-variant/10 relative z-10">
+              <div className="h-16 w-full relative flex items-end gap-0.5">
+                {[20, 40, 60, 30, 80, 50, 20, 90, 40, 30, 50, 70, 40, 60].map((h, i) => (
+                  <div key={i} className="flex-1 bg-primary/20" style={{ height: `${h}%` }} />
+                ))}
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Right Panel: Live Monitoring */}
-        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
-          <div className="bg-[#343439]/30 p-6 flex-1 flex flex-col shadow-[inset_0_0_15px_-5px_rgba(0,240,255,0.1)] border border-[#00f0ff]/10">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-sm font-sans font-bold uppercase tracking-widest">Activity Log</h3>
-              <Filter className="text-[#b9cacb]" size={16} />
-            </div>
-
-            <div className="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-              <AnimatePresence>
-                {activityLogs.map((log: any, i: number) => (
-                  <motion.div 
-                    key={i}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="p-3 bg-[#0d0e12] border-l group hover:bg-[#1a1b20] transition-colors"
-                    style={{ borderColor: log.color }}
-                  >
-                    <div className="flex justify-between text-[9px] font-mono mb-1">
-                      <span style={{ color: log.color }}>{log.type}</span>
-                      <span className="text-[#b9cacb]">{log.time}</span>
-                    </div>
-                    <div className="text-xs font-sans text-[#e3e2e7]">
-                      {log.msg}
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-
-            {/* Mini visual wave */}
-            <div className="mt-6">
-              <div className="h-[120px] w-full relative flex items-end gap-1">
-                {[20, 30, 40, 20, 60, 40, 20, 80, 50, 30].map((h, i) => (
-                  <motion.div 
-                    key={i} 
-                    animate={{ height: `${h + (Math.random() * 20 - 10)}%` }}
-                    transition={{ repeat: Infinity, duration: 1.5, repeatType: 'reverse', ease: 'easeInOut', delay: i * 0.1 }}
-                    className="flex-1 bg-[#00dbe9]/40" 
-                  />
-                ))}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0d0e12] via-[#0d0e12]/0 to-[#0d0e12]/80 pointer-events-none"></div>
-              </div>
-              <div className="flex justify-between mt-2 text-[8px] font-mono text-[#b9cacb] tracking-widest">
-                <span>00:00:00</span>
-                <span>LIVE_TRAFFIC_WAVE</span>
-                <span>MARKER_0.4s</span>
-              </div>
-            </div>
+          {/* Extra Metrics Row */}
+          <div className="col-span-12 lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <MetricCard 
+              title="NETWORK THROUGHPUT" 
+              value={currentMetrics.net} 
+              unit="MB/S" 
+              dataKey="net" 
+              data={currentMetrics.sparklines} 
+              colors={{ low: '#4ecb71', mid: '#f5c518', high: 'var(--error)' }} 
+            />
+            <MetricCard 
+              title="SECURITY_MODULE" 
+              value={99.2} 
+              unit="%" 
+              dataKey="cpu" 
+              data={currentMetrics.sparklines} 
+              colors={{ low: '#4ecb71', mid: '#f5c518', high: 'var(--error)' }} 
+            >
+              <div className="text-[10px] font-mono uppercase text-primary tracking-widest mt-1">End-to-End Tunnel Active</div>
+            </MetricCard>
           </div>
         </div>
-
       </div>
 
-      {/* Visual Texture / Background Elements */}
-      <div className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden opacity-20 hidden lg:block">
-        <div className="absolute inset-0" style={{
-          backgroundImage: 'radial-gradient(circle, #dbfcff 1px, transparent 1px)',
-          backgroundSize: '40px 40px'
-        }} />
+      {/* BOTTOM BANNER */}
+      <div className="bg-primary text-on-primary py-3 px-8 flex justify-between items-center relative overflow-hidden shrink-0 shadow-[0_0_20px_rgba(219,252,255,0.2)]">
+        <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)', backgroundSize: '200% 100%', animation: 'shimmer 2s infinite linear' }}></div>
+        <div className="font-mono font-bold tracking-[0.2em] uppercase text-[11px] relative z-10">PREDICT FAILURES BEFORE THEY HAPPEN</div>
+        <div className="bg-on-primary text-primary px-3 py-1 font-mono text-[9px] uppercase tracking-widest rounded-full relative z-10 shadow-lg">BUILD_REF: 0x772A</div>
       </div>
     </div>
   )
 }
 
-function HealthBar({ label, value, suffix, color = '#00dbe9' }: { label: string, value: number, suffix: string, color?: string }) {
+function FlashValue({ value, unit, color, unitSize = 'text-xl' }: { value: string | number, unit?: string, color?: string, unitSize?: string }) {
+  const [flash, setFlash] = useState(false)
+  useEffect(() => {
+    setFlash(true)
+    const t = setTimeout(() => setFlash(false), 150)
+    return () => clearTimeout(t)
+  }, [value])
   return (
-    <div className="space-y-2 relative">
-      <div className="flex justify-between text-[9px] font-mono uppercase tracking-widest text-[#b9cacb]">
+    <span style={{ color, opacity: flash ? 0.5 : 1, transition: 'opacity 150ms' }}>
+      {value}<span className={`${unitSize} text-on-surface-variant/50 ml-1 tracking-normal`}>{unit}</span>
+    </span>
+  )
+}
+
+function MetricCard({ title, value, unit, dataKey, data, colors, children }: { title: string, value: number, unit: string, dataKey: string, data: any[], colors: { low: string, mid: string, high: string }, children?: React.ReactNode }) {
+  const color = value > 90 ? colors.high : value > 70 ? colors.mid : colors.low
+
+  return (
+    <div className="bg-surface-container-low p-6 relative flex flex-col justify-between h-[160px] overflow-hidden group border border-transparent hover:border-outline-variant/20 transition-all">
+       <span className="mono-label text-on-surface-variant z-10 transition-colors group-hover:text-on-surface font-bold uppercase tracking-widest">{title}</span>
+       <div className="z-10 mt-auto">
+         <div className="font-mono text-4xl tracking-tighter origin-left">
+           <FlashValue value={value.toFixed(1)} unit={unit} color={color} unitSize="text-lg" />
+         </div>
+         <div className="mt-1 h-0.5 bg-surface-container-highest/30 w-full overflow-hidden">
+            <div className="h-full transition-all duration-300" style={{ backgroundColor: color, width: `${Math.min(100, (value / 1000) * 100)}%`, boxShadow: `0 0 8px ${color}44` }}></div>
+         </div>
+         {children}
+       </div>
+       
+       <div className="absolute inset-x-0 bottom-0 h-[60px] opacity-20 group-hover:opacity-60 transition-opacity z-0 pointer-events-none">
+         <ResponsiveContainer width="100%" height="100%">
+           <LineChart data={data}>
+             <Line type="stepAfter" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
+           </LineChart>
+         </ResponsiveContainer>
+       </div>
+    </div>
+  )
+}
+
+function HealthMeter({ label, value, unit = '%', maxValue = 100 }: { label: string, value: number, unit?: string, maxValue?: number }) {
+  const percentage = Math.min(100, Math.max(0, (value / maxValue) * 100))
+  const isCritical = percentage > 85
+  const isWarning = percentage > 60
+  
+  const colorStyle = isCritical ? 'var(--error)' : isWarning ? '#f5c518' : '#4ecb71'
+  const shadowColor = isCritical ? 'rgba(255,180,171,0.6)' : isWarning ? 'rgba(245,197,24,0.4)' : 'rgba(78,203,113,0.4)'
+  const textColor = isCritical ? 'text-error' : isWarning ? 'text-[#f5c518]' : 'text-[#4ecb71]'
+
+  return (
+    <div className="space-y-2 relative group">
+      <div className="flex justify-between text-[9px] font-mono uppercase tracking-widest text-on-surface-variant transition-colors group-hover:text-on-surface">
         <div className="flex items-center gap-2">
-          <span className="w-1 h-1 rounded-full animate-pulse" style={{ backgroundColor: color }}></span>
+          <span className="w-1 h-1 rounded-full" style={{ backgroundColor: colorStyle, boxShadow: `0 0 8px ${shadowColor}`, animation: isCritical ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none' }}></span>
           <span>{label}</span>
         </div>
-        <span style={{ color }}>{value.toFixed(1)}{suffix}</span>
+        <span className={`${textColor} font-bold transition-all duration-300 drop-shadow-[0_0_4px_rgba(0,0,0,0.5)]`}>
+          <FlashValue value={value} unit={unit} unitSize="text-[10px]" />
+        </span>
       </div>
-      <div className="h-1 bg-[#343439] w-full overflow-hidden">
-        <motion.div 
-          className="h-full" 
-          initial={{ width: 0 }} 
-          animate={{ width: `${Math.min(value, 100)}%` }} 
-          transition={{ duration: 1, delay: 0.2 }}
-          style={{ backgroundColor: color }} 
-        />
+      <div className="h-1.5 bg-surface-container-highest/40 w-full overflow-hidden border border-outline-variant/10 relative">
+        <div className="h-full transition-all duration-700 ease-out relative z-10" style={{ width: `${percentage}%`, backgroundColor: colorStyle, boxShadow: `0 0 12px ${shadowColor}` }}>
+           <div className="absolute inset-0 bg-white/10 animate-pulse" />
+        </div>
       </div>
     </div>
   )

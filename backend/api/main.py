@@ -19,6 +19,7 @@ import logging
 import httpx
 import redis.asyncio as aioredis
 import structlog
+from sqlalchemy.exc import IntegrityError
 
 # ─── LOGGING CONFIGURATION ───
 structlog.configure(
@@ -1211,9 +1212,9 @@ async def update_settings(
         await session.execute(
             text("""
                 INSERT INTO platform_settings (key, value, updated_by)
-                VALUES ('app_settings', :value::jsonb, :user)
+                VALUES ('app_settings', CAST(:value AS JSONB), :user)
                 ON CONFLICT (key) DO UPDATE SET
-                    value = :value::jsonb,
+                    value = CAST(:value AS JSONB),
                     updated_by = :user,
                     updated_at = NOW()
             """),
@@ -1562,17 +1563,23 @@ async def create_slo(
 ) -> dict[str, Any]:
     slo_id = f"slo-{_uuid4().hex[:8]}"
     async for db in get_db():
-        await save_slo(db, {
-            "slo_id": slo_id,
-            "service_id": body.service_id,
-            "name": body.name,
-            "metric_name": body.metric_name,
-            "target_value": body.target_value,
-            "comparison": body.comparison,
-            "window_days": body.window_days,
-            "created_by": current_user.username,
-        })
-        return {"slo_id": slo_id, "status": "created"}
+        try:
+            await save_slo(db, {
+                "slo_id": slo_id,
+                "service_id": body.service_id,
+                "name": body.name,
+                "metric_name": body.metric_name,
+                "target_value": body.target_value,
+                "comparison": body.comparison,
+                "window_days": body.window_days,
+                "created_by": current_user.username,
+            })
+            return {"slo_id": slo_id, "status": "created"}
+        except IntegrityError as e:
+            await db.rollback()
+            if "slos_service_id_fkey" in str(e):
+                raise HTTPException(status_code=404, detail=f"Service '{body.service_id}' does not exist.")
+            raise HTTPException(status_code=400, detail="Database integrity violation.")
 
 
 @app.delete("/api/v1/slos/{slo_id}", tags=["slos"])

@@ -7,11 +7,13 @@ interface WsStore {
   latestIncidents: WsIncidentEvent[]
   rcaUpdates: Record<string, WsRcaUpdate>
   liveMetrics: Record<string, Record<string, number>>
+  lastSeenAlertTs: number
   setConnected: (v: boolean) => void
   addAnomaly: (event: WsAnomalyEvent) => void
   addIncident: (event: WsIncidentEvent) => void
   updateRca: (incidentId: string, update: WsRcaUpdate) => void
   updateMetrics: (serviceId: string, metrics: Record<string, number>) => void
+  markAlertsAsSeen: (ts?: number) => void
 }
 
 export const useWsStore = create<WsStore>((set) => ({
@@ -20,6 +22,7 @@ export const useWsStore = create<WsStore>((set) => ({
   latestIncidents: [],
   rcaUpdates: {},
   liveMetrics: {},
+  lastSeenAlertTs: typeof window !== 'undefined' ? Number(localStorage.getItem('lastSeenAlertTs') || 0) : 0,
   setConnected: (v) => set({ connected: v }),
   addAnomaly: (event) =>
     set((state) => {
@@ -58,4 +61,12 @@ export const useWsStore = create<WsStore>((set) => ({
         [serviceId]: { ...state.liveMetrics[serviceId], ...metrics },
       },
     })),
+  markAlertsAsSeen: (ts) =>
+    set((state) => {
+      const finalTs = ts || Date.now()
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lastSeenAlertTs', finalTs.toString())
+      }
+      return { lastSeenAlertTs: finalTs }
+    }),
 }))

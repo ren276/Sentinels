@@ -54,7 +54,7 @@ export default function ForecastsPage() {
     return Object.values(groups)
   }, [forecasts])
 
-  if (isLoading) return <div className="p-8 font-mono text-sm text-muted animate-pulse">LOADING PROJECTIONS...</div>
+  if (isLoading) return <div className="p-8 font-mono text-sm text-muted">LOADING PROJECTIONS...</div>
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">

@@ -27,6 +27,8 @@ def build_postmortem_prompt(
 ) -> str:
     duration = incident.get("duration_minutes", "unknown")
     affected = incident.get("affected_services", [])
+    timeline_str = "\n".join([f"  {e['timestamp']} — {e['event']}" for e in timeline])
+
     return f"""You are writing a production incident post-mortem document for an engineering team.
 
 INCIDENT DETAILS:
@@ -37,10 +39,7 @@ INCIDENT DETAILS:
   Affected services: {affected}
 
 TIMELINE:
-{chr(10).join(
-    f"  {e['timestamp']} — {e['event']}"
-    for e in timeline
-)}
+{timeline_str}
 
 METRICS DURING INCIDENT:
   Peak P95 Latency: {metrics_during.get("peak_p95_latency_ms", "N/A")}ms

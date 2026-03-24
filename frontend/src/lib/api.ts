@@ -34,17 +34,29 @@ api.interceptors.response.use(
       original._retry = true
       isRefreshing = true
       try {
-        await axios.post(
-          '/api/auth/refresh',
-          {},
+        const refreshUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/auth/refresh`
+        const refreshToken = localStorage.getItem('refresh_token')
+        
+        const res = await axios.post(
+          refreshUrl,
+          { refresh_token: refreshToken },
           { withCredentials: true }
         )
+
+        if (res.data?.access_token) {
+          document.cookie = `access_token=${res.data.access_token}; path=/; max-age=3600; SameSite=Lax`
+          if (res.data.refresh_token) {
+             localStorage.setItem('refresh_token', res.data.refresh_token)
+          }
+        }
+
         isRefreshing = false
         return api(original)
       } catch {
         isRefreshing = false
         useAuthStore.getState().clearAuth()
-        if (typeof window !== 'undefined') {
+        localStorage.removeItem('refresh_token')
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
           window.location.href = '/login'
         }
       }
@@ -77,8 +89,13 @@ export const apiClient = {
     }
     return res
   },
+  register: (body: any) => api.post('/api/v1/auth/register', body),
+  forgotPassword: (email: string) => api.post('/api/v1/auth/forgot-password', { email }),
+  requestAccess: (body: any) => api.post('/api/v1/auth/request-access', body),
   logout: () => api.post('/api/v1/auth/logout'),
   me: () => api.get('/api/v1/auth/me'),
+
+  getHealth: () => api.get('/health'),
 
   // Services
   getServices: () => api.get('/api/v1/services'),

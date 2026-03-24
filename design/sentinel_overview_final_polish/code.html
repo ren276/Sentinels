@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=Geist:wght@400;600;700&amp;family=Space+Grotesk:wght@700&amp;family=Inter:wght@400;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-container": "#4a4b54",
+              "on-primary-container": "#006970",
+              "primary-fixed": "#7df4ff",
+              "tertiary-container": "#ffcec7",
+              "on-surface": "#e3e2e7",
+              "surface-variant": "#343439",
+              "on-background": "#e3e2e7",
+              "primary": "#dbfcff",
+              "on-tertiary-fixed-variant": "#930005",
+              "tertiary-fixed-dim": "#ffb4aa",
+              "on-secondary-fixed": "#1a1b23",
+              "on-error-container": "#ffdad6",
+              "outline": "#849495",
+              "inverse-primary": "#006970",
+              "outline-variant": "#3b494b",
+              "surface-container-low": "#1a1b20",
+              "on-secondary-fixed-variant": "#45464f",
+              "on-tertiary": "#690003",
+              "surface": "#121317",
+              "primary-fixed-dim": "#00dbe9",
+              "on-secondary": "#2f3038",
+              "surface-container-highest": "#343439",
+              "surface-dim": "#121317",
+              "secondary-fixed-dim": "#c6c5d0",
+              "secondary-fixed": "#e3e1ed",
+              "on-primary-fixed-variant": "#004f54",
+              "on-primary-fixed": "#002022",
+              "primary-container": "#00f0ff",
+              "on-tertiary-container": "#c1000a",
+              "on-surface-variant": "#b9cacb",
+              "secondary": "#c6c5d0",
+              "surface-container": "#1f1f24",
+              "surface-bright": "#38393d",
+              "on-primary": "#00363a",
+              "inverse-surface": "#e3e2e7",
+              "surface-container-lowest": "#0d0e12",
+              "inverse-on-surface": "#2f3035",
+              "background": "#121317",
+              "on-secondary-container": "#bbbbc6",
+              "tertiary-fixed": "#ffdad5",
+              "error-container": "#93000a",
+              "error": "#ffb4ab",
+              "tertiary": "#fff3f1",
+              "surface-tint": "#00dbe9",
+              "surface-container-high": "#292a2e",
+              "on-tertiary-fixed": "#410001",
+              "on-error": "#690005"
+            },
+            fontFamily: {
+              "mono": ["DM Mono", "monospace"],
+              "sans": ["Geist", "Inter", "sans-serif"],
+              "headline": ["Space Grotesk", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+      }
+      .font-mono { font-family: 'DM Mono', monospace; }
+      .font-sans { font-family: 'Geist', sans-serif; }
+      .stagger-1 { margin-left: 0; }
+      .stagger-2 { margin-left: 2rem; }
+      .stagger-3 { margin-left: 1rem; }
+      .glow-border {
+        box-shadow: 0 0 15px -5px rgba(0, 240, 255, 0.2);
+        border: 1px solid rgba(0, 240, 255, 0.15);
+      }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-sans selection:bg-primary selection:text-on-primary">
+<!-- Sidebar Navigation -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-[#121317] hidden lg:flex flex-col py-8 border-r-0 z-50">
+<div class="px-8 mb-12">
+<div class="text-lg font-mono text-[#dbfcff] flex items-center gap-3">
+<span class="material-symbols-outlined" data-weight="fill" style="font-variation-settings: 'FILL' 1;">security</span>
+<span>SENTINEL</span>
+</div>
+<div class="text-[10px] uppercase tracking-widest font-mono text-on-surface-variant/60 mt-1">v2.4.0-STABLE</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-4 px-8 py-4 text-[#dbfcff] bg-[#292a2e] border-l-2 border-[#dbfcff] transition-all duration-200" href="#">
+<span class="material-symbols-outlined">grid_view</span>
+<span class="text-[10px] uppercase tracking-widest font-mono">Dashboard</span>
+</a>
+<a class="flex items-center gap-4 px-8 py-4 text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] transition-all duration-200" href="#">
+<span class="material-symbols-outlined">security</span>
+<span class="text-[10px] uppercase tracking-widest font-mono">Sentinel</span>
+</a>
+<a class="flex items-center gap-4 px-8 py-4 text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] transition-all duration-200" href="#">
+<span class="material-symbols-outlined">query_stats</span>
+<span class="text-[10px] uppercase tracking-widest font-mono">Analytics</span>
+</a>
+<a class="flex items-center gap-4 px-8 py-4 text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] transition-all duration-200 relative" href="#">
+<span class="material-symbols-outlined">notifications</span>
+<span class="text-[10px] uppercase tracking-widest font-mono">Alerts</span>
+<span class="absolute right-8 top-1/2 -translate-y-1/2 w-2 h-2 bg-primary-container rounded-full ring-4 ring-surface"></span>
+</a>
+<a class="flex items-center gap-4 px-8 py-4 text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] transition-all duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px] uppercase tracking-widest font-mono">Settings</span>
+</a>
+</nav>
+<div class="px-8 mt-auto space-y-6">
+<div class="space-y-4">
+<a class="flex items-center gap-4 text-[#e3e2e7]/50 hover:text-on-surface text-[10px] uppercase tracking-widest font-mono" href="#">
+<span class="material-symbols-outlined text-sm">help</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-4 text-[#e3e2e7]/50 hover:text-on-surface text-[10px] uppercase tracking-widest font-mono" href="#">
+<span class="material-symbols-outlined text-sm">description</span>
+<span>Documentation</span>
+</a>
+</div>
+<button class="w-full bg-primary text-on-primary font-mono text-[10px] tracking-widest py-4 hover:brightness-110 active:scale-95 transition-all">
+            REQUEST ACCESS
+        </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="lg:ml-64 min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="fixed top-0 lg:left-64 right-0 z-40 bg-transparent flex justify-between items-center px-8 py-6">
+<div class="flex items-center gap-8">
+<div class="text-[#dbfcff] font-mono tracking-tighter text-2xl hidden md:block">OVERVIEW</div>
+<!-- Service Toggle -->
+<div class="bg-surface-container-low p-1 flex items-center border border-outline-variant/30">
+<button class="px-4 py-1 text-[10px] font-mono tracking-widest bg-primary-container text-on-primary-container font-bold transition-all duration-200">REAL</button>
+<button class="px-4 py-1 text-[10px] font-mono tracking-widest text-on-surface-variant/40 hover:text-on-surface transition-all duration-200">DEMO</button>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<!-- Refresh Countdown -->
+<div class="hidden xl:flex items-center gap-2 px-3 py-1 bg-surface-container-high/20 border border-outline-variant/10">
+<span class="text-[9px] font-mono text-on-surface-variant/60 uppercase tracking-[0.2em]">Refresh In:</span>
+<span class="text-[10px] font-mono text-primary font-bold">12S</span>
+</div>
+<!-- Online Users Indicator -->
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-high/40 backdrop-blur-md border border-outline-variant/20">
+<span class="w-1.5 h-1.5 bg-primary-container rounded-full animate-pulse"></span>
+<span class="text-[10px] font-mono text-primary uppercase tracking-tighter">142 Active Nodes</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 transition-transform">sensors</span>
+<span class="material-symbols-outlined text-primary cursor-pointer hover:scale-110 transition-transform">notifications</span>
+<div class="w-8 h-8 bg-surface-container-highest border border-outline-variant/30 flex items-center justify-center overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAlWiT6BWbOUCt_H5yG4BqugKTuCQMU1gdzn43lBAH_1XX4Oox4ObxB3ayD-KUGPFJ5HDldt9EaWe9RtKCB48IOvsNi8fWxO5kQeX2IhHy7CchDCoGruPQ7ThfJlkVcgwDYb_xFYLxEB_THPUuq5HrQjnafQzv4sKvLNx2YGkDVbVEKm3HA94iSso7ieBxu_ocw7jZCZHJjsjG5JU_LikE2A2v9Xux8ofVKaur6dmUuh8Vd3WdlZ00x21vg0fs7sKOk2uERaRCSCgc"/>
+</div>
+</div>
+</div>
+</header>
+<!-- System Health Strip (Secondary Anchor) -->
+<div class="mt-24 px-8 py-4 bg-surface-container-lowest grid grid-cols-2 md:grid-cols-4 gap-8 items-center border-y border-outline-variant/10">
+<div class="space-y-2 relative">
+<div class="flex justify-between text-[9px] font-mono uppercase tracking-widest text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="w-1 h-1 bg-[#00F0FF] rounded-full animate-pulse"></span>
+<span>CPU LOAD</span>
+</div>
+<span class="text-primary">42%</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 42%"></div>
+</div>
+</div>
+<div class="space-y-2 relative">
+<div class="flex justify-between text-[9px] font-mono uppercase tracking-widest text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="w-1 h-1 bg-[#00F0FF] rounded-full animate-pulse"></span>
+<span>MEM ALLOC</span>
+</div>
+<span class="text-primary">68.2GB</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 68%"></div>
+</div>
+</div>
+<div class="space-y-2 relative">
+<div class="flex justify-between text-[9px] font-mono uppercase tracking-widest text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="w-1 h-1 bg-[#00F0FF] rounded-full animate-pulse"></span>
+<span>DISK I/O</span>
+</div>
+<span class="text-primary">12ms</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 15%"></div>
+</div>
+</div>
+<div class="space-y-2 relative">
+<div class="flex justify-between text-[9px] font-mono uppercase tracking-widest text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="w-1 h-1 bg-[#00F0FF] rounded-full animate-pulse"></span>
+<span>NET TRAFFIC</span>
+</div>
+<span class="text-primary">1.2GB/s</span>
+</div>
+<div class="h-1 bg-surface-container-highest w-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 82%"></div>
+</div>
+</div>
+</div>
+<!-- Content Grid -->
+<div class="p-8 grid grid-cols-12 gap-6 flex-1">
+<!-- Hero Data Section -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<div class="bg-surface-container-low p-8 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 font-mono text-[8px] text-on-surface-variant/20 tracking-widest">TRACE_ID: 0x9FA21</div>
+<div class="relative z-10">
+<h1 class="text-5xl md:text-7xl font-mono tracking-tighter text-[#dbfcff] leading-[0.9] font-bold">
+<div class="stagger-1">PREDICT</div>
+<div class="stagger-2">FAILURES</div>
+<div class="stagger-3">BEFORE</div>
+<div class="stagger-1 text-on-surface-variant/30">THEY HAPPEN.</div>
+</h1>
+</div>
+<!-- Live Data Stream Overlay -->
+<div class="mt-12 border-t border-outline-variant/10 pt-6">
+<div class="flex gap-4 overflow-hidden mask-fade-right">
+<div class="flex-shrink-0 bg-surface-container-high px-4 py-2 border-l border-primary">
+<div class="text-[9px] font-mono text-on-surface-variant uppercase">Uptime</div>
+<div class="text-xl font-mono text-primary">99.998%</div>
+</div>
+<div class="flex-shrink-0 bg-surface-container-high px-4 py-2 border-l border-on-surface-variant/30">
+<div class="text-[9px] font-mono text-on-surface-variant uppercase">Threats</div>
+<div class="text-xl font-mono text-on-surface">0.00%</div>
+</div>
+<div class="flex-shrink-0 bg-surface-container-high px-4 py-2 border-l border-on-surface-variant/30">
+<div class="text-[9px] font-mono text-on-surface-variant uppercase">Latency</div>
+<div class="text-xl font-mono text-on-surface">14ms</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bento Grid Sub-items -->
+<div class="grid grid-cols-2 gap-6">
+<div class="bg-surface-container-low p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-outline-variant/20 transition-all">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">security</span>
+<span class="text-[10px] font-mono text-on-surface-variant">SEC_MODULE</span>
+</div>
+<div>
+<div class="text-2xl font-mono text-on-surface mb-1">ENCRYPTED</div>
+<div class="text-[10px] font-mono uppercase text-primary tracking-widest">End-to-End Tunnel Active</div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 flex flex-col justify-between aspect-video md:aspect-auto border border-transparent hover:border-outline-variant/20 transition-all">
+<div class="flex justify-between items-start">
+<span class="material-symbols-outlined text-on-surface-variant">hub</span>
+<span class="text-[10px] font-mono text-on-surface-variant">NODE_DIST</span>
+</div>
+<div>
+<div class="text-2xl font-mono text-on-surface mb-1">GLOBAL</div>
+<div class="text-[10px] font-mono uppercase text-on-surface-variant/60 tracking-widest">12 Data Centers Online</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Panel: Live Monitoring -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<div class="bg-surface-container-highest/30 p-6 flex-1 flex flex-col glow-border">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-sm font-sans font-bold uppercase tracking-widest">Activity Log</h3>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">filter_list</span>
+</div>
+<div class="space-y-4 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+<!-- Log Item 1 -->
+<div class="p-3 bg-surface-container-lowest border-l border-primary group hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between text-[9px] font-mono mb-1">
+<span class="text-primary">AUTHENTICATION</span>
+<span class="text-on-surface-variant">14:22:01</span>
+</div>
+<div class="text-xs font-sans text-on-surface">User <span class="font-mono text-primary">ADM-09</span> signed into US-WEST-1 node.</div>
+</div>
+<!-- Log Item 2 -->
+<div class="p-3 bg-surface-container-lowest border-l border-on-surface-variant/20 group hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between text-[9px] font-mono mb-1">
+<span class="text-on-surface-variant">DATABASE</span>
+<span class="text-on-surface-variant">14:21:44</span>
+</div>
+<div class="text-xs font-sans text-on-surface">Query optimization complete for <span class="font-mono text-on-surface-variant">CLUSTER_B</span>.</div>
+</div>
+<!-- Log Item 3 -->
+<div class="p-3 bg-surface-container-lowest border-l border-on-surface-variant/20 group hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between text-[9px] font-mono mb-1">
+<span class="text-on-surface-variant">NETWORK</span>
+<span class="text-on-surface-variant">14:20:12</span>
+</div>
+<div class="text-xs font-sans text-on-surface">Ingress peak reached: <span class="font-mono">842 MB/s</span>. Scaling...</div>
+</div>
+<!-- Log Item 4 -->
+<div class="p-3 bg-surface-container-lowest border-l border-error group hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between text-[9px] font-mono mb-1">
+<span class="text-error">SECURITY</span>
+<span class="text-on-surface-variant">14:18:55</span>
+</div>
+<div class="text-xs font-sans text-on-surface">Unauthorized access attempt blocked from <span class="font-mono text-error">45.22.1.92</span>.</div>
+</div>
+</div>
+<div class="mt-6">
+<div class="h-[120px] w-full relative">
+<div class="absolute inset-0 flex items-end gap-1 px-1">
+<div class="flex-1 bg-primary/20 h-1/4"></div>
+<div class="flex-1 bg-primary/30 h-2/5"></div>
+<div class="flex-1 bg-primary/40 h-1/2"></div>
+<div class="flex-1 bg-primary/20 h-1/3"></div>
+<div class="flex-1 bg-primary/60 h-3/4"></div>
+<div class="flex-1 bg-primary/40 h-1/2"></div>
+<div class="flex-1 bg-primary/20 h-1/4"></div>
+<div class="flex-1 bg-primary/80 h-[90%]"></div>
+<div class="flex-1 bg-primary/50 h-3/5"></div>
+<div class="flex-1 bg-primary/30 h-1/3"></div>
+</div>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-lowest/0 via-surface-container-lowest/0 to-surface-container-lowest/80 pointer-events-none"></div>
+</div>
+<div class="flex justify-between mt-2 text-[8px] font-mono text-on-surface-variant tracking-widest">
+<span>00:00:00</span>
+<span>LIVE_TRAFFIC_WAVE</span>
+<span>MARKER_0.4s</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Visual Texture / Background Elements -->
+<div class="fixed inset-0 pointer-events-none z-[-1] overflow-hidden opacity-20">
+<svg class="absolute w-full h-full" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<pattern height="40" id="dotGrid" patternunits="userSpaceOnUse" width="40">
+<circle cx="2" cy="2" fill="#dbfcff" r="1"></circle>
+</pattern>
+</defs>
+<rect fill="url(#dotGrid)" height="100%" width="100%"></rect>
+</svg>
+</div>
+</body></html>

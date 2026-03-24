@@ -3,37 +3,40 @@
 
 /* ── CSS Variables ─────────────────────────────────────────── */
 :root {
-  --bg-base:        #09090B;
-  --bg-surface:     #0F0F11;
-  --bg-raised:      #18181B;
-  --bg-subtle:      #1C1C1F;
-  --border:         #27272A;
-  --border-subtle:  #1C1C1F;
-  --border-strong:  #3F3F46;
-  --text-primary:   #FAFAFA;
-  --text-secondary: #A1A1AA;
-  --text-muted:     #52525B;
-  --text-disabled:  #3F3F46;
-  --red:            #EF4444;
-  --red-muted:      rgba(239,68,68,0.12);
-  --amber:          #F59E0B;
-  --amber-muted:    rgba(245,158,11,0.12);
-  --emerald:        #10B981;
-  --emerald-muted:  rgba(16,185,129,0.12);
-  --blue:           #3B82F6;
-  --blue-muted:     rgba(59,130,246,0.12);
+  --surface: #121317;
+  --surface-container-lowest: #0d0e12;
+  --surface-container-low: #1a1b20;
+  --surface-container: #1f1f24;
+  --surface-container-high: #292a2e;
+  --surface-container-highest: #343439;
+  --on-surface: #e3e2e7;
+  --on-surface-variant: #b9cacb;
+  --outline-variant: #3b494b;
+  --primary: #dbfcff;
+  --primary-fixed: #00dbe9;
+  --primary-container: #00f0ff;
+  --on-primary: #00363a;
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --amber: #fbbf24;
+  --emerald: #10B981;
   --font-sans: var(--font-geist);
   --font-mono: var(--font-dm-mono);
+
+  /* Legacy mappings for backward compatibility during migration */
+  --bg-base: var(--surface);
+  --bg-surface: var(--surface-container-low);
+  --bg-raised: var(--surface-container-high);
+  --bg-subtle: var(--surface-container-highest);
+  --text-primary: var(--on-surface);
+  --text-secondary: var(--on-surface-variant);
+  --text-muted: #8e9192;
+  --border: var(--outline-variant);
 }
 
 /* ── Global Reset ──────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
-  cursor: none !important;
-}
-
-input, textarea, [contenteditable] {
-  cursor: text !important;
 }
 
 html, body {
@@ -115,6 +118,60 @@ html, body {
 /* ── Cursor blink for RCA streaming ───────────────────────── */
 .cursor-blink {
   animation: blink 1s step-end infinite;
+}
+
+/* ── Custom Utilities ──────────────────────────────────────── */
+@layer utilities {
+  .ghost-border { 
+    box-shadow: inset 0 0 0 1px rgba(132, 148, 149, 0.2); 
+  }
+  .ghost-border:focus-within, .ghost-border-focus:focus-within { 
+    box-shadow: inset 0 0 0 1px rgba(219, 252, 255, 0.3); 
+  }
+  .glow-border {
+    box-shadow: 0 0 15px -5px rgba(0, 240, 255, 0.2);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+  }
+  .dot-grid {
+    background-image: radial-gradient(circle, #3b494b 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .text-glow {
+    text-shadow: 0 0 15px rgba(219, 252, 255, 0.3);
+  }
+  .crt-scanlines::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    z-index: 2;
+    background-size: 100% 4px, 3px 100%;
+    pointer-events: none;
+  }
+  .scanner-line {
+    background: linear-gradient(to bottom, transparent, var(--primary), transparent);
+    height: 100px;
+    width: 100%;
+    position: absolute;
+    top: -100px;
+    opacity: 0.1;
+    animation: scan 8s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes scan {
+    0% { top: -100px; }
+    100% { top: 100%; }
+  }
+  .mono-label {
+    font-family: var(--font-mono), monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
 }
 
 /* ── Tailwind layer overrides ──────────────────────────────── */

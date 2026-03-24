@@ -210,46 +210,50 @@ export default function SlosPage() {
   const breached = slos.filter((s: Slo) => (s.compliance_pct ?? 100) < 95).length
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
-      <motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex items-center justify-between">
+    <div className="p-8 max-w-5xl mx-auto space-y-8 relative z-10">
+      <div className="fixed inset-0 dot-grid opacity-[0.03] pointer-events-none z-[-1]" />
+      
+      <motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex items-center justify-between mb-12">
         <div>
-          <h1 className="text-2xl font-mono font-medium tracking-wide mb-1 flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-            <Target size={22} style={{ color: 'var(--blue)' }} />SLO / SLA TRACKING
+          <h1 className="text-3xl font-mono font-black tracking-tighter text-on-surface mb-1 flex items-center gap-3">
+            <Target size={28} className="text-primary" />SLO STATUS
           </h1>
-          <p className="text-sm font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>SERVICE LEVEL OBJECTIVES &amp; ERROR BUDGETS</p>
+          <p className="text-[10px] font-mono tracking-[0.3em] text-on-surface-variant uppercase">SERVICE_LEVEL_OBJECTIVES // COMPLIANCE_CORE</p>
         </div>
         <button id="btn-create-slo" onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded border font-mono text-xs uppercase tracking-widest bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors"
-          style={{ borderColor: 'var(--blue)' }}>
-          <Plus size={14} /> CREATE SLO
+          className="flex items-center gap-2 px-6 py-3 border border-primary/30 font-mono text-[10px] uppercase tracking-[0.2em] bg-primary/5 text-primary hover:bg-primary/10 transition-all font-bold">
+          <Plus size={14} /> NEW_OBJECTIVE
         </button>
       </motion.div>
 
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-3 gap-4">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-3 gap-6">
         {[
-          { label: 'HEALTHY (≥99%)', value: healthy, color: 'var(--emerald)' },
-          { label: 'AT RISK (95–99%)', value: atRisk, color: 'var(--amber)' },
-          { label: 'BREACHED (<95%)', value: breached, color: 'var(--red)' },
+          { label: 'HEALTHY_NODES', value: healthy, color: 'text-primary', sub: '>= 99.9%' },
+          { label: 'AT_RISK_NODES', value: atRisk, color: 'text-amber-400', sub: '95.0% - 99.8%' },
+          { label: 'BREACH_DETECTED', value: breached, color: 'text-error', sub: '< 95.0%' },
         ].map(s => (
-          <motion.div key={s.label} variants={staggerItem} className="p-4 rounded border" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-            <p className="font-mono text-[10px] uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>{s.label}</p>
-            <p className="font-mono text-2xl font-bold" style={{ color: s.color, fontFamily: 'var(--font-dm-mono)' }}>{s.value}</p>
+          <motion.div key={s.label} variants={staggerItem} className="p-6 bg-surface-container-low glow-border flex flex-col justify-between">
+            <div>
+              <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-bold">{s.label}</p>
+              <p className={`font-mono text-4xl font-black ${s.color}`}>{s.value.toString().padStart(2, '0')}</p>
+            </div>
+            <p className="font-mono text-[8px] text-on-surface-variant/40 mt-4 tracking-widest">{s.sub}</p>
           </motion.div>
         ))}
       </motion.div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          {[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded border animate-pulse" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }} />)}
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-32 bg-surface-container-low" />)}
         </div>
       ) : (
-        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-3">
+        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-4">
           {slos.map((slo: Slo) => <SloCard key={slo.slo_id} slo={slo} />)}
           {slos.length === 0 && (
-            <div className="py-20 text-center border border-dashed rounded" style={{ borderColor: 'var(--border-strong)' }}>
-              <Target size={32} className="mx-auto mb-4" style={{ color: 'var(--text-muted)' }} />
-              <p className="font-mono text-sm tracking-widest" style={{ color: 'var(--text-muted)' }}>NO ACTIVE SLOS</p>
-              <p className="font-mono text-xs mt-2" style={{ color: 'var(--text-muted)' }}>Create an SLO to start tracking compliance and error budgets.</p>
+            <div className="py-32 text-center border-2 border-dashed border-outline-variant/10">
+              <Target size={48} className="mx-auto mb-6 text-on-surface-variant/20" />
+              <p className="font-mono text-sm tracking-[0.4em] text-on-surface-variant uppercase">NO_ACTIVE_CORE_SLOS</p>
+              <button onClick={() => setShowModal(true)} className="mt-8 text-primary font-mono text-[10px] uppercase tracking-widest hover:underline underline-offset-8">Initialize First Objective</button>
             </div>
           )}
         </motion.div>

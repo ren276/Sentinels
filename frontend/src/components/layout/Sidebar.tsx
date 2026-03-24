@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Server, AlertTriangle, TrendingUp,
-  BookOpen, Settings, Users, Brain, LogOut, ChevronLeft, ChevronRight,
-  FileText, Rocket, Target, Microscope, ShieldCheck
+  LayoutDashboard, BarChart2, Bell, Globe, Shield, AlertOctagon,
+  Database, FileText, LifeBuoy, Settings, Users, Brain, LogOut, ChevronLeft, ChevronRight,
+  ShieldCheck
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore } from '@/store/uiStore'
@@ -16,20 +16,27 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { GlobalTools } from './GlobalTools'
 
 const NAV_ITEMS = [
-  { group: 'MONITOR', items: [
-    { label: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { label: 'Sentinel', href: '/services', icon: ShieldCheck },
-    { label: 'Anomaly Lab', href: '/anomaly-lab', icon: TrendingUp },
-    { label: 'Alerts', href: '/incidents', icon: AlertTriangle, hasBadge: true },
+  { group: 'GLOBAL', items: [
+    { label: 'Dashboard', href: '/', icon: LayoutDashboard, shortcut: '⌘D' },
+    { label: 'SLO Status', href: '/slos', icon: BarChart2, shortcut: '⌘S' },
+    { label: 'Alerts', href: '/incidents', icon: Bell, hasBadge: true, shortcut: '⌘I' },
   ]},
-  { group: 'MANAGE', items: [
-    { label: 'Settings', href: '/settings', icon: Settings },
+  { group: 'NETWORK', items: [
+    { label: 'Services', href: '/services', icon: Globe, shortcut: '⌘O' },
+    { label: 'Anomaly Lab', href: '/anomaly-lab', icon: Shield, shortcut: '⌘L' },
+    { label: 'Threats', href: '/threats', icon: AlertOctagon, shortcut: '⌘T' },
+  ]},
+  { group: 'SYSTEM', items: [
+    { label: 'Database', href: '/services/postgres-local', icon: Database, shortcut: '⌘B' },
+    { label: 'Runbooks', href: '/runbooks', icon: FileText, shortcut: '⌘R' },
+    { label: 'Support', href: '/support', icon: LifeBuoy, shortcut: '⌘?' },
+    { label: 'Settings', href: '/settings', icon: Settings, shortcut: '⌘,' },
   ]},
 ]
 
 const ADMIN_ITEMS = [
-  { label: 'Users', href: '/settings?tab=users', icon: Users },
-  { label: 'ML Models', href: '/ml', icon: Brain },
+  { label: 'Users', href: '/settings?tab=users', icon: Users, shortcut: '⌘U' },
+  { label: 'ML Models', href: '/ml', icon: Brain, shortcut: '⌘M' },
 ]
 
 export function Sidebar() {
@@ -37,7 +44,7 @@ export function Sidebar() {
   const router = useRouter()
   const { user, setUser, clearAuth, isAdmin } = useAuthStore()
   const { sidebarCollapsed, toggleSidebar } = useUiStore()
-  const { connected } = useWsStore()
+  const { connected, latestAnomalies, latestIncidents, lastSeenAlertTs, markAlertsAsSeen } = useWsStore()
 
   useWebSocket()
 
@@ -67,21 +74,21 @@ export function Sidebar() {
       layout
       animate={{ width: w }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="hidden lg:flex flex-col h-screen flex-shrink-0 bg-[#121317] py-8 z-50 overflow-hidden"
+      className="hidden lg:flex flex-col h-screen flex-shrink-0 bg-surface py-8 z-50 overflow-hidden"
     >
       <div className="px-8 mb-12 flex justify-between items-center">
         {!sidebarCollapsed && (
           <div>
-            <div className="text-lg font-mono text-[#dbfcff] flex items-center gap-3">
+            <div className="text-lg font-mono text-primary flex items-center gap-3">
               <ShieldCheck size={20} fill="currentColor" />
               <span>SENTINEL</span>
             </div>
-            <div className="text-[10px] uppercase tracking-widest font-mono text-[#b9cacb]/60 mt-1">v2.4.0-STABLE</div>
+            <div className="text-[10px] uppercase tracking-widest font-mono text-on-surface-variant/60 mt-1">v2.4.0-STABLE</div>
           </div>
         )}
         <button
           onClick={toggleSidebar}
-          className="p-1 rounded transition-colors text-[#b9cacb] hover:text-[#e3e2e7]"
+          className="p-1 rounded transition-colors text-on-surface-variant hover:text-on-surface"
         >
           {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
@@ -91,7 +98,7 @@ export function Sidebar() {
         {NAV_ITEMS.map((group) => (
           <div key={group.group} className="mb-4">
             {!sidebarCollapsed && (
-              <p className="px-8 mb-2 font-mono text-[10px] font-medium tracking-widest text-[#b9cacb]/60">
+              <p className="px-8 mb-2 font-mono text-[10px] font-medium tracking-widest text-on-surface-variant/40 uppercase">
                 {group.group}
               </p>
             )}
@@ -99,24 +106,33 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const active = pathname === item.href
                 const Icon = item.icon
+                
+                // Dynamic unread logic
+                const newestTs = Math.max(
+                  latestIncidents[0] ? new Date(latestIncidents[0].created_at).getTime() : 0,
+                  latestAnomalies[0] ? new Date(latestAnomalies[0].detected_at).getTime() : 0
+                )
+                const showBadge = item.hasBadge && newestTs > lastSeenAlertTs
+
                 return (
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className={`flex items-center gap-4 py-4 transition-all duration-200 relative ${
+                      onClick={() => item.label === 'Alerts' && markAlertsAsSeen(newestTs)}
+                      className={`group flex items-center gap-4 py-4 transition-all duration-200 relative ${
                         sidebarCollapsed ? 'justify-center px-4' : 'px-8'
                       } ${
                         active 
-                          ? 'text-[#dbfcff] bg-[#292a2e] border-l-2 border-[#dbfcff]' 
-                          : 'text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] border-l-2 border-transparent'
+                          ? 'text-primary bg-surface-container-high' 
+                          : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
                       }`}
                     >
                       <Icon size={20} strokeWidth={active ? 2 : 1.5} />
                       {!sidebarCollapsed && (
                         <span className="text-[10px] uppercase tracking-widest font-mono shrink-0">{item.label}</span>
                       )}
-                      {!sidebarCollapsed && item.hasBadge && (
-                         <span className="absolute right-8 top-1/2 -translate-y-1/2 w-2 h-2 bg-[#00f0ff] rounded-full ring-4 ring-[#121317]"></span>
+                      {!sidebarCollapsed && showBadge && (
+                         <span className="absolute right-8 top-1/2 -translate-y-1/2 w-2 h-2 bg-error rounded-full ring-4 ring-surface shadow-[0_0_8px_rgba(255,180,171,0.6)]"></span>
                       )}
                     </Link>
                   </li>
@@ -141,12 +157,12 @@ export function Sidebar() {
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className={`flex items-center gap-4 py-4 transition-all duration-200 ${
+                      className={`group flex items-center gap-4 py-4 transition-all duration-200 relative ${
                         sidebarCollapsed ? 'justify-center px-4' : 'px-8'
                       } ${
                         active 
-                          ? 'text-[#dbfcff] bg-[#292a2e] border-l-2 border-[#dbfcff]' 
-                          : 'text-[#e3e2e7]/50 hover:bg-[#1a1b20] hover:text-[#e3e2e7] border-l-2 border-transparent'
+                          ? 'text-primary bg-surface-container-high' 
+                          : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
                       }`}
                     >
                       <Icon size={20} strokeWidth={active ? 2 : 1.5} />
@@ -163,28 +179,27 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom Profile / Tools */}
-      <div className={`px-8 mt-auto space-y-6 ${sidebarCollapsed ? 'hidden' : 'block'}`}>
-        
-        <div className="border-t border-[#3b494b]/20 pt-6 flex justify-center">
+      <div className={`mt-auto bg-surface-container-low ${sidebarCollapsed ? 'hidden' : 'block'}`}>
+        <div className="flex justify-center py-4 opacity-40 hover:opacity-100 transition-opacity">
           <GlobalTools />
         </div>
 
         {user && (
-          <div className="flex items-center justify-between border-t border-[#3b494b]/20 pt-6">
+          <div className="flex items-center justify-between p-6 bg-surface-container">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#1a1b20] flex items-center justify-center border border-[#3b494b]/30">
-                <span className="font-mono text-[10px] text-[#dbfcff] uppercase">
+              <div className="w-8 h-8 bg-surface-container-highest flex items-center justify-center ghost-border">
+                <span className="font-mono text-[10px] text-primary uppercase">
                   {user.username.substring(0,2)}
                 </span>
               </div>
               <div className="flex flex-col">
-                <span className="font-mono text-[12px] text-[#e3e2e7]">{user.username}</span>
-                <span className="font-mono text-[9px] uppercase tracking-widest text-[#00f0ff]">{user.role}</span>
+                <span className="font-mono text-[12px] text-on-surface select-none">{user.username}</span>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-primary/60">{user.role}</span>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="text-[#b9cacb]/60 hover:text-[#ffb4ab] transition-colors"
+              className="text-on-surface-variant hover:text-error transition-colors p-2"
               title="Logout"
             >
               <LogOut size={16} />

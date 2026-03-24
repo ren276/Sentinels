@@ -57,12 +57,13 @@ async def start_scheduler() -> AsyncIOScheduler:
         max_instances=1,
     )
 
-    # Metric broadcast: every 30 seconds
+    # Metric broadcast: every 5 seconds
     scheduler.add_job(
         broadcast_metrics_job,
-        "interval", seconds=30,
+        "interval", seconds=5,
         id="metric_broadcast",
         max_instances=1,
+        coalesce=True,
     )
 
     # SLO snapshots: every 15 minutes
@@ -74,10 +75,10 @@ async def start_scheduler() -> AsyncIOScheduler:
         coalesce=True,
     )
 
-    # Real metrics collection
+    # Real metrics collection: every 10 seconds
     scheduler.add_job(
         real_metrics_job_wrapper,
-        "interval", minutes=1,
+        "interval", seconds=10,
         id="real_metrics",
         max_instances=1,
         coalesce=True,
@@ -266,6 +267,15 @@ async def _detect_anomaly_for_service(db, service_id: str) -> None:
                 from api.config import settings
                 if severity == "critical":
                     await send_slack_alert(incident_data, result)
+                    
+                    # Auto-trigger RCA for critical incidents
+                    from ml.rca import rca_job_handler
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(rca_job_handler(
+                        incident_id,
+                        service_id,
+                        float(anomaly_score),
+                    ))
                 else:
                     import redis.asyncio as aioredis
                     import json
@@ -462,6 +472,9 @@ async def broadcast_metrics_job() -> None:
 
                 cpu   = round(random.uniform(0.2, 0.7), 4)
                 mem   = round(random.uniform(0.4, 0.8), 4)
+                disk  = round(random.uniform(0.1, 0.3), 4)
+                dlate = round(random.uniform(8, 25), 2)
+                net_t = round(random.uniform(10, 800), 2)
                 error = round(random.uniform(0, 0.01), 6)
                 p95   = round(random.uniform(80, 200), 2)
                 rps   = round(random.uniform(300, 600), 2)
@@ -496,6 +509,9 @@ async def broadcast_metrics_job() -> None:
                     "metrics": {
                         "cpu_usage": cpu,
                         "mem_usage": mem,
+                        "disk_usage": disk if service_id == "system-host" else 0,
+                        "disk_latency": dlate if service_id == "system-host" else 0,
+                        "net_throughput": net_t if service_id == "system-host" else 0,
                         "error_rate": error,
                         "p95_latency_ms": p95,
                         "req_per_second": rps,

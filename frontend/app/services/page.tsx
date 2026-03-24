@@ -27,8 +27,8 @@ export default function ServicesPage() {
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <motion.div variants={fadeUp} initial="hidden" animate="visible" className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-mono font-medium tracking-wide mb-1" style={{ color: 'var(--text-primary)' }}>
-            SERVICE REGISTRY
+          <h1 className="text-3xl font-mono font-black tracking-tighter text-on-surface mb-1">
+            SERVICES
           </h1>
           <p className="text-sm font-mono tracking-wider" style={{ color: 'var(--text-muted)' }}>
             MONITORED MICROSERVICES AND INFRASTRUCTURE
