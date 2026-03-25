@@ -1,3 +1,2 @@
-$env:PYTHONPATH = "E:\Sentinels\backend"
-cd E:\Sentinels\backend
+cd "$PSScriptRoot\..\backend"
 poetry run pytest tests/ -v
