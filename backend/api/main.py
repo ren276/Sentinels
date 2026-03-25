@@ -187,6 +187,7 @@ async def lifespan(app: FastAPI):
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+app = FastAPI(
     title="Sentinel API",
     version="1.0",
     description="System Monitoring Platform — Created by Sandesh Verma",
@@ -1297,22 +1298,10 @@ async def list_forecasts(
 @limiter.limit("100/minute")
 async def list_users(
     request: Request,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    all_users = await get_all_users(db)
-    
-    # Admin gets everything
-    if current_user.role == "admin":
-        return all_users
-        
-    # Observer only sees themselves
-    if current_user.role == "viewer": # 'viewer' is the role name in security.py line 65
-        return [u for u in all_users if u["user_id"] == current_user.user_id]
-        
-    # Operator gets basic list (strip sensitive or specific fields if any)
-    # Currently get_all_users already strips passwordHash etc.
-    return all_users
+    return await get_all_users(db)
 
 
 @app.post("/api/v1/users", tags=["users"])

@@ -36,7 +36,7 @@ def train_isolation_forest(X_train: np.ndarray, service_id: str, run_mlflow: boo
         contamination=0.05,
         max_samples="auto",
         random_state=42,
-        n_jobs=-1,
+        n_jobs=1,
     )
     model.fit(X_scaled)
 
