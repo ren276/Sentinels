@@ -7,6 +7,7 @@ import { useWsStore } from '@/store/wsStore'
 import { useAuthStore } from '@/store/authStore'
 import { Shield, Target, Database, Activity, Filter, ArrowUp, ArrowDown, Bell, Globe, ShieldCheck } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
+import { ServiceHealthGrid } from '@/components/dashboard/ServiceHealthGrid'
 
 export default function OverviewPage() {
   const [isReal, setIsReal] = useState(true)
@@ -136,34 +137,9 @@ export default function OverviewPage() {
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar relative z-10">
         <div className="grid grid-cols-12 gap-6">
           
-          {/* Hero Section */}
-          <div className="col-span-12 lg:col-span-8 bg-surface-container-low p-8 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 font-mono text-[8px] text-on-surface-variant/20 tracking-widest">TRACE_ID: 0x9FA21</div>
-            <div className="relative z-10">
-              <h1 className="text-5xl md:text-7xl font-mono tracking-tighter text-primary leading-[1] font-bold">
-                <div className="ml-0">PREDICT</div>
-                <div className="ml-8 text-on-surface/40">FAILURES</div>
-                <div className="ml-4">BEFORE</div>
-                <div className="ml-0 text-on-surface-variant/30 text-glow">THEY HAPPEN.</div>
-              </h1>
-            </div>
-            
-            <div className="mt-12 border-t border-outline-variant/10 pt-6">
-              <div className="flex gap-4 overflow-hidden">
-                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l-2 border-primary">
-                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Uptime</div>
-                  <div className="text-2xl font-mono text-primary font-bold">99.998%</div>
-                </div>
-                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l border-on-surface-variant/30">
-                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Threats</div>
-                  <div className="text-2xl font-mono text-on-surface">0.00%</div>
-                </div>
-                <div className="flex-shrink-0 bg-surface-container-high px-4 py-3 border-l border-on-surface-variant/30">
-                  <div className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest mb-1">Latency</div>
-                  <div className="text-2xl font-mono text-on-surface">14ms</div>
-                </div>
-              </div>
-            </div>
+          {/* Service Health Grid Section */}
+          <div className="col-span-12 lg:col-span-8 flex flex-col h-[500px] lg:h-[600px] bg-surface-container-low/30 p-4">
+            <ServiceHealthGrid />
           </div>
 
           <div className="col-span-12 lg:col-span-4 bg-surface-container-highest/30 p-6 flex flex-col glow-border relative overflow-hidden h-[500px] lg:h-[600px] group/feed">
@@ -222,8 +198,8 @@ export default function OverviewPage() {
       {/* BOTTOM BANNER */}
       <div className="bg-primary text-on-primary py-3 px-8 flex justify-between items-center relative overflow-hidden shrink-0 shadow-[0_0_20px_rgba(219,252,255,0.2)]">
         <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)', backgroundSize: '200% 100%', animation: 'shimmer 2s infinite linear' }}></div>
-        <div className="font-mono font-bold tracking-[0.2em] uppercase text-[11px] relative z-10">PREDICT FAILURES BEFORE THEY HAPPEN</div>
-        <div className="bg-on-primary text-primary px-3 py-1 font-mono text-[9px] uppercase tracking-widest rounded-full relative z-10 shadow-lg">BUILD_REF: 0x772A</div>
+        <div className="font-mono font-bold tracking-[0.2em] uppercase text-[11px] relative z-10">SENTINEL_DASHBOARD v1.0 — Created by Sandesh Verma</div>
+        <div className="bg-on-primary text-primary px-3 py-1 font-mono text-[9px] uppercase tracking-widest rounded-full relative z-10 shadow-lg">BUILD_REF: 1.0.0</div>
       </div>
     </div>
   )
@@ -260,7 +236,7 @@ function MetricCard({ title, value, unit, dataKey, data, colors, children }: { t
        </div>
        
        <div className="absolute inset-x-0 bottom-0 h-[60px] opacity-20 group-hover:opacity-60 transition-opacity z-0 pointer-events-none">
-         <ResponsiveContainer width="100%" height="100%">
+         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
            <LineChart data={data}>
              <Line type="stepAfter" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />
            </LineChart>

@@ -9,7 +9,9 @@ import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from .database import (
-    get_db, get_all_service_ids,
+    get_db, 
+    AsyncSessionLocal, 
+    get_all_service_ids,
     get_service_metrics,
 )
 from .config import settings
@@ -60,7 +62,7 @@ async def start_scheduler() -> AsyncIOScheduler:
     # Metric broadcast: every 5 seconds
     scheduler.add_job(
         broadcast_metrics_job,
-        "interval", seconds=5,
+        "interval", seconds=15,
         id="metric_broadcast",
         max_instances=1,
         coalesce=True,
@@ -78,7 +80,7 @@ async def start_scheduler() -> AsyncIOScheduler:
     # Real metrics collection: every 10 seconds
     scheduler.add_job(
         real_metrics_job_wrapper,
-        "interval", seconds=10,
+        "interval", seconds=30,
         id="real_metrics",
         max_instances=1,
         coalesce=True,
@@ -356,7 +358,7 @@ async def _forecast_for_service(db, service_id: str) -> None:
                 horizon = 30
                 
                 if model:
-                    log.debug("forecast.using_model", service_id=service_id, metric=metric)
+                    pass
                     res_df = forecast_prophet(model, horizon_minutes=horizon)
                     points = []
                     for _, row in res_df.iterrows():
@@ -369,7 +371,7 @@ async def _forecast_for_service(db, service_id: str) -> None:
                         })
                 else:
                     # Fallback: Simple trend + noise
-                    log.debug("forecast.using_fallback", service_id=service_id, metric=metric)
+                    pass
                     # Calculate simple slope
                     slope = (last_val - float(df["value"].iloc[0])) / len(df) if len(df) > 10 else 0
                     points = []
@@ -408,7 +410,7 @@ async def model_retraining_job() -> None:
     log.info("model_retraining_job.started")
     try:
         from ml.train import train_all_services
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             await train_all_services(db)
         log.info("model_retraining_job.completed")
     except Exception as exc:

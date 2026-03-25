@@ -90,9 +90,61 @@ def test_token_contains_sub_and_role():
     assert payload["role"] == "admin"
 
 
-def test_token_contains_exp_claim():
+def test_access_token_expiry_is_in_future():
     token = create_access_token({"sub": "testuser", "role": "viewer"})
     payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    assert "exp" in payload
     exp_dt = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
     assert exp_dt > datetime.now(timezone.utc)
+
+
+# ── SSRF Guard ───────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ssrf_guard_blocks_localhost():
+    from api.utils import assert_safe_url
+    with pytest.raises(ValueError, match="resolves to private network range"):
+        await assert_safe_url("https://localhost/webhook")
+    with pytest.raises(ValueError, match="resolves to private network range"):
+        await assert_safe_url("https://127.0.0.1/webhook")
+
+
+@pytest.mark.asyncio
+async def test_ssrf_guard_blocks_private_ip():
+    from api.utils import assert_safe_url
+    with pytest.raises(ValueError, match="resolves to private network range"):
+        await assert_safe_url("https://192.168.1.1/webhook")
+
+
+@pytest.mark.asyncio
+async def test_ssrf_guard_blocks_non_https():
+    from api.utils import assert_safe_url
+    with pytest.raises(ValueError, match="Only HTTPS URLs are allowed"):
+        await assert_safe_url("http://google.com/webhook")
+
+
+@pytest.mark.asyncio
+async def test_ssrf_guard_allows_public_https():
+    from api.utils import assert_safe_url
+    # google.com should be fine unless it resolves to a weird local thing in CI
+    try:
+        await assert_safe_url("https://www.google.com")
+    except ValueError as e:
+        if "Could not resolve hostname" not in str(e):
+             pytest.fail(f"SSRF guard blocked valid URL: {e}")
+
+
+# ── Revocation ────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_token_revocation_checks_redis():
+    from api.security import is_token_revoked, revoke_token
+    class MockRedis:
+        def __init__(self): self.data = {}
+        async def setex(self, k, t, v): self.data[k] = v
+        async def exists(self, k): return k in self.data
+        
+    mock = MockRedis()
+    jti = "test-jti-123"
+    assert await is_token_revoked(jti, mock) is False
+    await revoke_token(jti, 3600, mock)
+    assert await is_token_revoked(jti, mock) is True

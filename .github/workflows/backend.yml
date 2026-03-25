@@ -47,5 +47,5 @@ jobs:
       run: poetry run pytest tests/ -v
       env:
         SECRET_KEY: test_secret_key_123
-        DATABASE_URL: sqlite+pysqlite:///:memory:
+        DATABASE_URL: "sqlite+pysqlite:///:memory:"
         ENVIRONMENT: test

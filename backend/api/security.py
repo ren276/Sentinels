@@ -13,9 +13,10 @@ from starlette.responses import Response
 import re
 
 from .config import settings
+from .database import AsyncSessionLocal
 
 pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=12, deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 # ─── Password helpers ────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ class TokenData(BaseModel):
     role: Optional[str] = None
     jti: Optional[str] = None
     exp: Optional[int] = None
+    email: Optional[str] = None
+    full_name: Optional[str] = None
 
 
 class User(BaseModel):
@@ -105,18 +108,46 @@ async def verify_token(token: str, redis_client) -> TokenData:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        # Check algorithm (ES256 support for Supabase OAuth)
+        if token.startswith("eyJhbGciOiJFUzI1NiIs"):
+            from supabase import create_client
+            sb_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
+            res = sb_client.auth.get_user(token)
+            if not res or not res.user:
+                raise credentials_exception
+            
+            # Map Supabase User to our TokenData
+            # Note: Supabase provides its own role (often 'authenticated'), 
+            # but we'll use 'viewer' as a default if not present or map it.
+            return TokenData(
+                username=res.user.id, 
+                role=res.user.role or "viewer", 
+                jti=None, 
+                exp=None,
+                email=res.user.email,
+                full_name=res.user.user_metadata.get("full_name") or res.user.user_metadata.get("name")
+            )
+
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         username: str = payload.get("sub")
-        jti: str = payload.get("jti")
-        role: str = payload.get("role")
-        exp: int = payload.get("exp")
-        if username is None or jti is None:
+        jti = payload.get("jti")
+        role = payload.get("role")
+        exp = payload.get("exp")
+        if username is None:
             raise credentials_exception
-        # Check revocation
-        if await is_token_revoked(jti, redis_client):
+        # Check revocation (only if jti is present)
+        if jti and await is_token_revoked(jti, redis_client):
             raise credentials_exception
-        return TokenData(username=username, role=role, jti=jti, exp=exp)
-    except JWTError:
+        return TokenData(
+            username=username, 
+            role=role, 
+            jti=jti, 
+            exp=exp,
+            email=payload.get("email"),
+            full_name=payload.get("full_name") or payload.get("name")
+        )
+    except JWTError as e:
+        log.error("auth.token_verify_failed", error=str(e), token_preview=token[:20] if token else "None")
         raise credentials_exception
 
 
@@ -138,18 +169,74 @@ async def get_redis():
     from .main import redis_pool
     yield redis_pool
 
+from structlog import get_logger
+log = get_logger()
+
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     redis_client=Depends(get_redis),
 ) -> User:
     from .main import get_db
-    from .database import get_user_by_username
+    from .database import get_user_by_username, get_user_by_id
+    
+    # Fallback to cookie if Bearer token is missing
+    if not token and request:
+        token = request.cookies.get("sentinel_session")
+        
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
     token_data = await verify_token(token, redis_client)
-    async for db in get_db():
-        user = await get_user_by_username(db, token_data.username)
+    async with AsyncSessionLocal() as db:
+        # Search by ID first (Supabase sub is the UUID)
+        user = await get_user_by_id(db, token_data.username)
+        if user:
+            pass
+        else:
+            # Fallback to username
+            user = await get_user_by_username(db, token_data.username)
+            if user:
+                pass
+            
+        if user is None:
+            log.info("auth.user_not_found_local", sub=token_data.username)
+            # AUTO-PROVISION Supabase/OAuth User if not found locally
+            if token_data.email:
+                try:
+                    from .database import create_oauth_user
+                    # Default role is viewer for auto-provisioned
+                    user = await create_oauth_user(
+                        db=db,
+                        username=token_data.email.split("@")[0][:50],
+                        email=token_data.email,
+                        name=token_data.full_name or token_data.email.split("@")[0],
+                        provider="external",
+                        role="viewer",
+                        user_id=token_data.username # Pass the verified UUID/sub
+                    )
+                except Exception as e:
+                    log.error("auth.auto_provision_failed", error=str(e))
+                    # Rollback the broken transaction so the session is usable again
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    # Try to find the user by email (they may already exist)
+                    from .database import get_user_by_email
+                    try:
+                        user = await get_user_by_email(db, token_data.email)
+                    except Exception:
+                        pass
+                
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+            
         return User(
             user_id=user["user_id"],
             username=user["username"],
@@ -192,7 +279,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        
+        # CSP header
+        csp_rules = [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'", # unsafe-eval for some frontend libs if needed
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: https://avatars.githubusercontent.com https://lh3.googleusercontent.com",
+            "connect-src 'self' wss: http://127.0.0.1:8000",
+            "font-src 'self'",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+        ]
+        response.headers["Content-Security-Policy"] = "; ".join(csp_rules)
+        
+        # Privacy & Tech detection prevention
+        response.headers["X-DNS-Prefetch-Control"] = "off"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        
+        # HSTS in production
         if settings.ENVIRONMENT == "production":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+        
+        # Hide Server header
+        response.headers["Server"] = ""
+        
         return response

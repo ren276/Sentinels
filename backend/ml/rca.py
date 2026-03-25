@@ -17,9 +17,25 @@ import structlog
 
 from api.config import settings
 
+import re # ADDED
+
 log = structlog.get_logger()
 OLLAMA_MODEL = "llama3.2:3b"  # always 3b, never 8b
 
+SECRET_PATTERNS = [
+    re.compile(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
+    re.compile(r"password[=:]\s*\S+", re.IGNORECASE),
+    re.compile(r"Authorization:\s*\S+", re.IGNORECASE),
+    re.compile(r"-----BEGIN [A-Z ]+-----[\s\S]+?-----END [A-Z ]+-----", re.IGNORECASE),
+    re.compile(r"api[_-]key[=:]\s*\S+", re.IGNORECASE),
+]
+
+def sanitize_rca_text(text: str) -> str:
+    """Redact sensitive patterns from RCA text."""
+    result = text
+    for pattern in SECRET_PATTERNS:
+        result = pattern.sub("[REDACTED]", result)
+    return result
 
 def build_rca_prompt(
     service: str,
@@ -202,7 +218,6 @@ async def rca_job_handler(
             **initial_payload
         })
 
-        log.debug("rca_job.gathering_context", service_id=service_id)
         metrics = await get_service_metrics_summary(service_id)
         logs = await get_recent_log_lines(service_id, 20)
         graph = await get_service_graph(service_id)
@@ -224,9 +239,10 @@ async def rca_job_handler(
             
             # Throttle broadcasts to avoid over-whelming frontend
             if now - last_broadcast_time > throttle_interval:
+                sanitized_accumulated = sanitize_rca_text(accumulated)
                 payload = {
                     "status": "streaming",
-                    "result": accumulated,
+                    "result": sanitized_accumulated,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
                 await redis_client.set(job_key, json.dumps(payload), ex=3600)
@@ -237,9 +253,10 @@ async def rca_job_handler(
                 })
                 last_broadcast_time = now
 
+        final_sanitized = sanitize_rca_text(accumulated)
         final_payload = {
             "status": "done",
-            "result": accumulated,
+            "result": final_sanitized,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         await redis_client.set(job_key, json.dumps(final_payload), ex=3600)

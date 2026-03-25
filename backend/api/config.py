@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     KAFKA_PASSWORD: str = ""
 
     # Auth — JWT_SECRET_KEY REQUIRED, min 32 chars
-    JWT_SECRET_KEY: str = "CHANGE_ME_MINIMUM_32_CHARACTERS_REQUIRED_HERE_NOW"
+    JWT_SECRET_KEY: str | bytes = "CHANGE_ME_MINIMUM_32_CHARACTERS_REQUIRED_HERE_NOW"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # OAuth
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
-    GITHUB_ENABLED: bool = False
+    GITHUB_ENABLED: bool = True  # Enable GitHub only
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     MICROSOFT_CLIENT_SECRET: str = ""
     MICROSOFT_TENANT_ID: str = "common"
     MICROSOFT_ENABLED: bool = False
+
+    # Supabase
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_JWT_SECRET: str = ""  # If verifying JWTs directly
 
     OAUTH_REDIRECT_BASE_URL: str = "http://localhost:8000"
 
@@ -79,13 +84,20 @@ class Settings(BaseSettings):
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
-    def jwt_secret_must_be_strong(cls, v: str) -> str:
+    def jwt_secret_must_be_strong(cls, v: str | bytes) -> str | bytes:
+        if isinstance(v, bytes):
+            if len(v) < 32:
+                raise ValueError("JWT_SECRET_KEY must be at least 32 bytes.")
+            return v
+            
         if len(v) < 32:
             raise ValueError(
                 "JWT_SECRET_KEY must be at least 32 characters. "
                 "Generate: python -c \"import secrets; "
                 "print(secrets.token_hex(32))\""
             )
+        # Note: Using raw string for JWT_SECRET_KEY as per standard Supabase/FastAPI setups.
+        # If using base64, ensure the key in .env is already in the expected format.
         return v
 
     @field_validator("DATABASE_URL")

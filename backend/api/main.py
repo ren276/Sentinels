@@ -20,8 +20,27 @@ import httpx
 import redis.asyncio as aioredis
 import structlog
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# ─── LOGGING CONFIGURATION ───
+SENSITIVE_KEYS = [
+    "password", "token", "secret", "key", "webhook",
+    "authorization", "cookie", "credential", "jwt", "hashed_password"
+]
+
+def scrub_sensitive_info(_, __, event_dict):
+    """structlog processor to scrub sensitive information."""
+    for key in event_dict:
+        k_lower = key.lower()
+        if any(s in k_lower for s in SENSITIVE_KEYS):
+            event_dict[key] = "[REDACTED]"
+    
+    # Also scrub nested dicts if needed
+    for key, value in event_dict.items():
+        if isinstance(value, dict):
+            scrub_sensitive_info(None, None, value)
+            
+    return event_dict
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
@@ -29,6 +48,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+        scrub_sensitive_info, # ADDED
         # Use dev.ConsoleRenderer for better visibility in powershell/terminal
         structlog.dev.ConsoleRenderer(
             colors=True if sys.stdout.isatty() else False,
@@ -89,6 +109,8 @@ from .websocket_manager import ws_manager
 from fastapi.responses import Response as FastAPIResponse, RedirectResponse
 from .oauth import oauth
 from uuid import uuid4 as _uuid4
+
+from .utils import assert_safe_url
 
 log = structlog.get_logger()
 
@@ -165,10 +187,9 @@ async def lifespan(app: FastAPI):
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
-app = FastAPI(
     title="Sentinel API",
-    version="1.0.0",
-    description="AI System Monitoring Platform",
+    version="1.0",
+    description="System Monitoring Platform — Created by Sandesh Verma",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -208,12 +229,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # Log full error server-side
+    log.error("internal_error", error=str(exc), path=request.url.path)
+    # Hide details from client unless in development
+    detail = str(exc) if settings.ENVIRONMENT == "development" else "Internal server error"
+    return FastAPIResponse(
+        content=json.dumps({"detail": detail}),
+        status_code=500,
+        media_type="application/json"
+    )
+
 
 # ─── Pydantic request/response models ────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    token: str
+    new_password: str
+
+
+class RequestAccessRequest(BaseModel):
+    username: str
+    email: str
+    reason: Optional[str] = None
 
 
 class RefreshRequest(BaseModel):
@@ -287,20 +342,21 @@ async def health_check():
 # ─── AUTH endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/api/v1/auth/login", tags=["auth"])
-@limiter.limit("5/minute")
-async def login(request: Request, body: LoginRequest) -> Token:
+@limiter.limit("5/15minute")
+async def login(request: Request, response: FastAPIResponse, body: LoginRequest) -> Token:
     # Sanitize
-    username = body.username[:50].strip()
-    async for db in get_db():
+    username = body.username[:64].strip()
+    async with AsyncSessionLocal() as db:
         user = await get_user_by_username(db, username)
 
         ip = request.client.host if request.client else "unknown"
         ua = request.headers.get("user-agent", "")
 
         if not user:
-            await write_audit_log(db, None, "login_failure",
-                                  "auth", username, ip, ua, False,
+            await write_audit_log(db, None, "login_failure", 
+                                  "auth", username, ip, ua, False, 
                                   {"reason": "user_not_found"})
+            # Generic error to prevent timing attacks
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Check lockout
@@ -311,23 +367,44 @@ async def login(request: Request, body: LoginRequest) -> Token:
             if locked_until.tzinfo is None:
                 locked_until = locked_until.replace(tzinfo=timezone.utc)
             if locked_until > datetime.now(timezone.utc):
-                raise HTTPException(status_code=403, detail="Account temporarily locked. Try again later.")
+                await write_audit_log(db, user["user_id"], "login_locked", "auth", username, ip, ua, False, {})
+                raise HTTPException(status_code=423, detail="Account temporarily locked")
 
         if not verify_password(body.password, user["hashed_password"]):
             await update_user_login_failure(db, user["user_id"])
-            await write_audit_log(db, user["user_id"], "login_failure",
-                                  "auth", username, ip, ua, False,
+            await write_audit_log(db, user["user_id"], "login_failure", 
+                                  "auth", username, ip, ua, False, 
                                   {"reason": "wrong_password"})
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Success
         await update_user_login_success(db, user["user_id"])
-        await write_audit_log(db, user["user_id"], "login_success",
+        await write_audit_log(db, user["user_id"], "login_success", 
                               "auth", username, ip, ua, True, {})
 
         token_data = {"sub": user["username"], "role": user["role"]}
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
+
+        # Set cookies
+        response.set_cookie(
+            key="sentinel_session",
+            value=access_token,
+            httponly=False,  # Accessible to browser scripts for WebSocket
+            secure=settings.ENVIRONMENT == "production",
+            samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+        )
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=settings.ENVIRONMENT == "production",
+            samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+            path="/",
+        )
 
         return Token(
             access_token=access_token,
@@ -337,9 +414,120 @@ async def login(request: Request, body: LoginRequest) -> Token:
         )
 
 
+@app.post("/api/v1/auth/register", tags=["auth"])
+@limiter.limit("2/hour")
+async def register(request: Request, body: RegisterRequest):
+    if not settings.ALLOW_SELF_SIGNUP:
+         raise HTTPException(status_code=403, detail="Signup is disabled")
+    
+    if not validate_password_strength(body.password):
+        raise HTTPException(status_code=400, detail="Password too weak")
+    
+    async with AsyncSessionLocal() as db:
+        existing = await get_user_by_username(db, body.username)
+        if existing:
+            # Generic response to avoid revealing existing usernames
+            return {"status": "success", "message": "Check your email to complete registration"}
+        
+        user_id = str(uuid.uuid4())
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO users (user_id, username, email, hashed_password, role)
+                    VALUES (:uid, :uname, :email, :hp, :role)
+                """),
+                {"uid": user_id, "uname": body.username[:64], "email": body.email[:255], 
+                 "hp": hash_password(body.password), "role": "viewer"}
+            )
+            await session.commit()
+    return {"status": "success", "message": "User registered successfully"}
+
+
+@app.post("/api/v1/auth/forgot-password", tags=["auth"])
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, body: ForgotPasswordRequest):
+    # Always return success to prevent email enumeration
+    from hmac import compare_digest
+    from secrets import token_hex
+    async with AsyncSessionLocal() as db:
+        user = await get_user_by_email(db, body.email)
+        if user:
+            token = token_hex(32)
+            token_hash = hash_password(token) # Reuse hash helper
+            expires = datetime.now(timezone.utc) + timedelta(hours=1)
+            from sqlalchemy import text
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("UPDATE users SET reset_token_hash = :hash, reset_token_expires = :exp WHERE email = :email"),
+                    {"hash": token_hash, "exp": expires, "email": body.email}
+                )
+                await session.commit()
+            # Simulation of sending email
+            log.info("auth.reset_requested", email=body.email)
+            await write_audit_log(db, user["user_id"], "password_reset_requested", "auth", body.email)
+    
+    return {"status": "success", "message": "If this email is registered, you'll receive a reset link"}
+
+
+@app.post("/api/v1/auth/reset-password", tags=["auth"])
+@limiter.limit("5/hour")
+async def reset_password(request: Request, body: ResetPasswordRequest):
+    async with AsyncSessionLocal() as db:
+        user = await get_user_by_email(db, body.email)
+        if not user or not user.get("reset_token_hash") or not user.get("reset_token_expires"):
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+            
+        expires = user["reset_token_expires"]
+        if isinstance(expires, str):
+            expires = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+            
+        if expires < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Expired reset token")
+            
+        if not verify_password(body.token, user["reset_token_hash"]):
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+            
+        if not validate_password_strength(body.new_password):
+            raise HTTPException(status_code=400, detail="New password is too weak")
+            
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                text("""
+                    UPDATE users SET 
+                        hashed_password = :hp,
+                        reset_token_hash = NULL,
+                        reset_token_expires = NULL,
+                        failed_login_attempts = 0,
+                        locked_until = NULL
+                    WHERE user_id = :uid
+                """),
+                {"hp": hash_password(body.new_password), "uid": user["user_id"]}
+            )
+            await session.commit()
+            
+        # Revoke existing sessions? Yes, if we want to be secure
+        # We'll revoke user's JWTs if we have a way to find all JTIs? No, only current token is easy.
+        
+        await write_audit_log(db, user["user_id"], "password_reset_success", "auth", user["username"])
+        return {"status": "success", "message": "Password updated successfully"}
+
+
+@app.post("/api/v1/auth/request-access", tags=["auth"])
+@limiter.limit("10/day")
+async def request_access(request: Request, body: RequestAccessRequest):
+    async with AsyncSessionLocal() as db:
+        await write_audit_log(db, None, "access_requested", "auth", 
+                              body.email, details={"username": body.username, "reason": body.reason})
+    return {"status": "success", "message": "Access request submitted"}
+
+
 @app.post("/api/v1/auth/refresh", tags=["auth"])
 @limiter.limit("10/minute")
-async def refresh_token_endpoint(request: Request, body: RefreshRequest) -> Token:
+async def refresh_token_endpoint(request: Request, response: FastAPIResponse, body: RefreshRequest) -> Token:
     try:
         payload = jwt.decode(
             body.refresh_token,
@@ -361,6 +549,17 @@ async def refresh_token_endpoint(request: Request, body: RefreshRequest) -> Toke
         token_data = {"sub": username, "role": role}
         access_token = create_access_token(token_data)
         refresh_token = create_refresh_token(token_data)
+        
+        # Set cookies
+        response.set_cookie(
+            key="sentinel_session",
+            value=access_token,
+            httponly=False,
+            secure=settings.ENVIRONMENT == "production",
+            samesite="lax",
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+        )
 
         return Token(
             access_token=access_token,
@@ -387,7 +586,7 @@ async def logout(
             await revoke_token(jti, ttl, redis_pool)
     except Exception:
         pass
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         await write_audit_log(db, current_user.user_id, "logout", "auth", current_user.username)
     return {"status": "logged_out"}
 
@@ -410,13 +609,18 @@ async def oauth_login(
         raise HTTPException(
             400, f"{provider} OAuth not configured"
         )
+    
+    # Generate and store state for CSRF protection
+    state = str(uuid.uuid4())
+    request.session["oauth_state"] = state
+    
     redirect_uri = (
         f"{settings.OAUTH_REDIRECT_BASE_URL}"
         f"/api/auth/{provider}/callback"
     )
     client = oauth.create_client(provider)
     return await client.authorize_redirect(
-        request, redirect_uri
+        request, redirect_uri, state=state
     )
 
 @app.get("/api/auth/{provider}/callback", tags=["auth"])
@@ -426,6 +630,13 @@ async def oauth_callback(
 ) -> RedirectResponse:
     if provider not in ["github", "google", "microsoft"]:
         raise HTTPException(400, "Unknown provider")
+        
+    # Verify state
+    state = request.query_params.get("state")
+    stored_state = request.session.pop("oauth_state", None)
+    if not state or not stored_state or state != stored_state:
+        return RedirectResponse("/login?error=invalid_state")
+        
     client = oauth.create_client(provider)
     token = await client.authorize_access_token(request)
 
@@ -457,7 +668,7 @@ async def oauth_callback(
             "/login?error=no_email"
         )
 
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         # Find or create user
         user = await get_user_by_email(db, email)
         if not user:
@@ -491,14 +702,16 @@ async def oauth_callback(
         # Redirect to frontend with tokens as cookies
         response = RedirectResponse(url="/")
         response.set_cookie(
-            "access_token", access_token,
-            httponly=True, samesite="lax",
+            "sentinel_session", access_token,
+            httponly=False, samesite="lax",
             max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
         )
         response.set_cookie(
             "refresh_token", refresh_token,
             httponly=True, samesite="lax",
             max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+            path="/",
         )
         return response
 
@@ -511,7 +724,7 @@ async def list_services(
     request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         services = await get_all_services(db)
         return services
 
@@ -522,7 +735,7 @@ async def list_monitored_urls(
     request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         from sqlalchemy import text
         result = await db.execute(text("SELECT * FROM monitored_urls ORDER BY created_at DESC"))
         return [dict(r) for r in result.mappings().all()]
@@ -539,7 +752,7 @@ async def add_monitored_url(
     from sqlalchemy import text
     _id = f"url_{uuid.uuid4().hex[:8]}"
     service_id = f"http-{uuid.uuid4().hex[:8]}"
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         await db.execute(text("""
             INSERT INTO monitored_urls (id, service_id, name, url, expected_status_code, timeout_seconds, created_by)
             VALUES (:id, :sid, :name, :url, :esc, :ts, :cb)
@@ -559,7 +772,7 @@ async def delete_monitored_url(
     current_user: User = Depends(require_operator),
 ):
     from sqlalchemy import text
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         await db.execute(text("DELETE FROM monitored_urls WHERE id = :id"), {"id": url_id})
         await db.commit()
     return {"status": "deleted"}
@@ -572,6 +785,12 @@ async def test_slack(
     body: SlackTestRequest,
     current_user: User = Depends(require_operator),
 ):
+    # SSRF guard
+    try:
+        await assert_safe_url(body.webhook_url)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
     from alerting.slack import test_slack_webhook
     result = await test_slack_webhook(body.webhook_url)
     if not result["success"]:
@@ -609,7 +828,7 @@ async def get_service(
     service_id: str,
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         service = await get_service_by_id(db, service_id)
         if not service:
             raise HTTPException(status_code=404, detail="Service not found")
@@ -625,7 +844,7 @@ async def get_service_metrics_endpoint(
     metric: str = Query(default="all"),
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         metrics = await get_service_metrics(db, service_id, window_minutes, metric)
         return metrics
 
@@ -639,7 +858,7 @@ async def get_service_anomalies_endpoint(
     status: str = Query(default="active"),
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         anomalies = await get_service_anomalies(db, service_id, limit, status)
         return anomalies
 
@@ -653,7 +872,7 @@ async def get_service_forecast(
     horizon: int = Query(default=30, ge=5, le=120),
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         forecasts = await get_forecasts_for_service(db, service_id, metric)
         return forecasts
 
@@ -668,10 +887,10 @@ async def list_incidents(
     severity: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        incidents = await get_incidents(db, status, severity, limit)
-        return incidents
+    incidents = await get_incidents(db, status, severity, limit)
+    return incidents
 
 
 @app.get("/api/v1/incidents/{incident_id}", tags=["incidents"])
@@ -680,12 +899,12 @@ async def get_incident(
     request: Request,
     incident_id: str,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        incident = await get_incident_by_id(db, incident_id)
-        if not incident:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        return incident
+    incident = await get_incident_by_id(db, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
 
 
 # ─── RCA — CRITICAL: NO BODY, NO BackgroundTasks ──────────────────────────────
@@ -696,12 +915,13 @@ async def trigger_rca_generation(
     request: Request,
     incident_id: str,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """
     Trigger RCA generation. NO body. NO BackgroundTasks.
     Uses loop.create_task with positional args ONLY.
     """
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         incident = await get_incident_by_id(db, incident_id)
         if not incident:
             raise HTTPException(status_code=404, detail="Incident not found")
@@ -760,33 +980,32 @@ async def acknowledge_alert(
     request: Request,
     body: AcknowledgeRequest,
     current_user: User = Depends(require_operator),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        incident = await get_incident_by_id(db, body.incident_id)
-        if not incident:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        from sqlalchemy import text
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                text("""
-                    UPDATE incidents SET
-                        status = 'acknowledged',
-                        acknowledged_at = NOW(),
-                        acknowledged_by = :user,
-                        resolution_note = :note
-                    WHERE incident_id = :iid
-                """),
-                {"user": current_user.username, "note": body.note, "iid": body.incident_id}
-            )
-            await session.commit()
-        await write_audit_log(db, current_user.user_id, "alert.acknowledge",
-                              "incident", body.incident_id)
-        await ws_manager.broadcast({
-            "type": "incident_updated",
-            "incident_id": body.incident_id,
-            "status": "acknowledged",
-        })
-        return {"status": "acknowledged"}
+    incident = await get_incident_by_id(db, body.incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    from sqlalchemy import text
+    await db.execute(
+        text("""
+            UPDATE incidents SET
+                status = 'acknowledged',
+                acknowledged_at = NOW(),
+                acknowledged_by = :user,
+                resolution_note = :note
+            WHERE incident_id = :iid
+        """),
+        {"user": current_user.username, "note": body.note, "iid": body.incident_id}
+    )
+    await db.commit()
+    await write_audit_log(db, current_user.user_id, "alert.acknowledge",
+                          "incident", body.incident_id)
+    await ws_manager.broadcast({
+        "type": "incident_updated",
+        "incident_id": body.incident_id,
+        "status": "acknowledged",
+    })
+    return {"status": "acknowledged"}
 
 
 @app.post("/api/v1/incidents/resolve", tags=["incidents"])
@@ -795,69 +1014,68 @@ async def resolve_incident(
     request: Request,
     body: ResolveRequest,
     current_user: User = Depends(require_operator),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        incident = await get_incident_by_id(db, body.incident_id)
-        if not incident:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        
-        from sqlalchemy import text
-        from datetime import datetime, timezone
-        
-        # Calculate duration
-        created_at = incident["created_at"]
-        if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        
-        now = datetime.now(timezone.utc)
-        duration_min = int((now - created_at).total_seconds() / 60)
+    incident = await get_incident_by_id(db, body.incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    from sqlalchemy import text
+    from datetime import datetime, timezone
+    
+    # Calculate duration
+    created_at = incident["created_at"]
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    
+    now = datetime.now(timezone.utc)
+    duration_min = int((now - created_at).total_seconds() / 60)
 
-        async with AsyncSessionLocal() as session:
-            await session.execute(
-                text("""
-                    UPDATE incidents SET
-                        status = 'resolved',
-                        resolved_at = :now,
-                        resolved_by = :user,
-                        resolution_note = :note,
-                        duration_minutes = :dur
-                    WHERE incident_id = :iid
-                """),
-                {
-                    "user": current_user.username, 
-                    "note": body.note, 
-                    "iid": body.incident_id,
-                    "now": now,
-                    "dur": duration_min
-                }
-            )
-            await session.commit()
+    await db.execute(
+        text("""
+            UPDATE incidents SET
+                status = 'resolved',
+                resolved_at = :now,
+                resolved_by = :user,
+                resolution_note = :note,
+                duration_minutes = :dur
+            WHERE incident_id = :iid
+        """),
+        {
+            "user": current_user.username, 
+            "note": body.note, 
+            "iid": body.incident_id,
+            "now": now,
+            "dur": duration_min
+        }
+    )
+    await db.commit()
         
-        await write_audit_log(db, current_user.user_id, "incident.resolve",
-                              "incident", body.incident_id)
-        
-        # Trigger Slack Notification
-        try:
-            from alerting.slack import send_slack_resolution
-            incident_update = {
-                **incident,
-                "status": "resolved",
-                "resolution_note": body.note,
-                "duration_minutes": duration_min
-            }
-            await send_slack_resolution(incident_update)
-        except Exception as e:
-            log.warning("slack_resolve.failed", error=str(e))
-
-        await ws_manager.broadcast({
-            "type": "incident_updated",
-            "incident_id": body.incident_id,
+    await write_audit_log(db, current_user.user_id, "incident.resolve",
+                          "incident", body.incident_id)
+    
+    # Trigger Slack Notification
+    try:
+        from alerting.slack import send_slack_resolution
+        incident_update = {
+            **incident,
             "status": "resolved",
-        })
-        return {"status": "resolved", "duration_minutes": duration_min}
+            "resolution_note": body.note,
+            "duration_minutes": duration_min
+        }
+        await send_slack_resolution(incident_update)
+    except Exception as e:
+        log.warning("slack_resolve.failed", error=str(e))
+
+    await ws_manager.broadcast({
+        "type": "incident_updated",
+        "incident_id": body.incident_id,
+        "status": "resolved",
+    })
+    return {"status": "resolved", "duration_minutes": duration_min}
 
 
 @app.post("/api/v1/incidents/{incident_id}/comments", tags=["incidents"])
@@ -948,18 +1166,18 @@ async def execute_runbook_endpoint(
     runbook_id: str,
     body: RunbookExecuteRequest,
     current_user: User = Depends(require_operator),
+    db: AsyncSession = Depends(get_db),
 ):
     runbook = RUNBOOKS.get(runbook_id)
     if not runbook:
         raise HTTPException(status_code=404, detail="Runbook not found")
 
-    async for db in get_db():
-        await write_audit_log(db, current_user.user_id, "runbook.execute",
-                              "runbook", runbook_id, details={
-                                  "dry_run": body.dry_run,
-                                  "incident_id": body.incident_id,
-                                  "risk_level": runbook["risk_level"],
-                              })
+    await write_audit_log(db, current_user.user_id, "runbook.execute",
+                          "runbook", runbook_id, details={
+                              "dry_run": body.dry_run,
+                              "incident_id": body.incident_id,
+                              "risk_level": runbook["risk_level"],
+                          })
 
     if runbook["risk_level"] == "high" and not body.confirmed:
         return {"status": "requires_confirmation", "message": "High risk action requires confirmed=true"}
@@ -977,9 +1195,9 @@ async def execute_runbook_endpoint(
 async def list_ml_models(
     request: Request,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        return await get_model_registry(db)
+    return await get_model_registry(db)
 
 
 @app.get("/api/v1/ml/experiments", tags=["ml"])
@@ -1031,7 +1249,7 @@ async def trigger_training(
 async def _train_all_models() -> None:
     try:
         from ml.train import train_all_services
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             await train_all_services(db)
     except Exception as exc:
         log.error("training.failed", error=str(exc))
@@ -1068,9 +1286,9 @@ async def get_ollama_status(
 async def list_forecasts(
     request: Request,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        return await get_all_forecasts(db)
+    return await get_all_forecasts(db)
 
 
 # ─── USERS (admin only) ───────────────────────────────────────────────────────
@@ -1079,10 +1297,22 @@ async def list_forecasts(
 @limiter.limit("100/minute")
 async def list_users(
     request: Request,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        return await get_all_users(db)
+    all_users = await get_all_users(db)
+    
+    # Admin gets everything
+    if current_user.role == "admin":
+        return all_users
+        
+    # Observer only sees themselves
+    if current_user.role == "viewer": # 'viewer' is the role name in security.py line 65
+        return [u for u in all_users if u["user_id"] == current_user.user_id]
+        
+    # Operator gets basic list (strip sensitive or specific fields if any)
+    # Currently get_all_users already strips passwordHash etc.
+    return all_users
 
 
 @app.post("/api/v1/users", tags=["users"])
@@ -1091,25 +1321,24 @@ async def create_user(
     request: Request,
     body: CreateUserRequest,
     current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import text
     password = body.password or f"TempPass{uuid.uuid4().hex[:8]}!"
     if not validate_password_strength(password):
         raise HTTPException(status_code=400, detail="Password does not meet strength requirements")
     user_id = str(uuid.uuid4())
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            text("""
-                INSERT INTO users (user_id, username, email, hashed_password, role)
-                VALUES (:uid, :username, :email, :hp, :role)
-            """),
-            {"uid": user_id, "username": body.username[:50],
-             "email": body.email[:255], "hp": hash_password(password),
-             "role": body.role}
-        )
-        await session.commit()
-    async for db in get_db():
-        await write_audit_log(db, current_user.user_id, "user.created", "user", user_id)
+    await db.execute(
+        text("""
+            INSERT INTO users (user_id, username, email, hashed_password, role)
+            VALUES (:uid, :username, :email, :hp, :role)
+        """),
+        {"uid": user_id, "username": body.username[:50],
+         "email": body.email[:255], "hp": hash_password(password),
+         "role": body.role}
+    )
+    await db.commit()
+    await write_audit_log(db, current_user.user_id, "user.created", "user", user_id)
     return {"user_id": user_id, "username": body.username, "temp_password": password}
 
 
@@ -1119,28 +1348,38 @@ async def update_user(
     request: Request,
     user_id: str,
     body: UpdateUserRequest,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    # RBAC & IDOR: A user can only edit themselves UNLESS they are admin
+    if current_user.user_id != user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    # Admin cannot change their own role (prevents accidental lockout/privilege escalation)
+    if current_user.user_id == user_id and body.role is not None and body.role != current_user.role:
+         raise HTTPException(status_code=400, detail="Cannot change your own role")
+
     from sqlalchemy import text
     updates = []
     params: dict = {"uid": user_id}
     if body.email is not None:
         updates.append("email = :email")
         params["email"] = body.email[:255]
-    if body.role is not None:
+    if body.role is not None and current_user.role == "admin": # Only admin can change roles
         updates.append("role = :role")
         params["role"] = body.role
-    if body.is_active is not None:
+    if body.is_active is not None and current_user.role == "admin":
         updates.append("is_active = :is_active")
         params["is_active"] = body.is_active
+        
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            text(f"UPDATE users SET {', '.join(updates)} WHERE user_id = :uid"),
-            params
-        )
-        await session.commit()
+        
+    await db.execute(
+        text(f"UPDATE users SET {', '.join(updates)} WHERE user_id = :uid"),
+        params
+    )
+    await db.commit()
     return {"status": "updated"}
 
 
@@ -1150,16 +1389,15 @@ async def deactivate_user(
     request: Request,
     user_id: str,
     current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import text
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            text("UPDATE users SET is_active = FALSE WHERE user_id = :uid"),
-            {"uid": user_id}
-        )
-        await session.commit()
-    async for db in get_db():
-        await write_audit_log(db, current_user.user_id, "user.deactivated", "user", user_id)
+    await db.execute(
+        text("UPDATE users SET is_active = FALSE WHERE user_id = :uid"),
+        {"uid": user_id}
+    )
+    await db.commit()
+    await write_audit_log(db, current_user.user_id, "user.deactivated", "user", user_id)
     return {"status": "deactivated"}
 
 
@@ -1173,7 +1411,7 @@ async def change_my_password(
     from sqlalchemy import text
     if not validate_password_strength(body.new_password):
         raise HTTPException(status_code=400, detail="Password does not meet strength requirements")
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         user = await get_user_by_id(db, current_user.user_id)
         if not user or not verify_password(body.current_password, user["hashed_password"]):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
@@ -1183,7 +1421,7 @@ async def change_my_password(
             {"hp": hash_password(body.new_password), "uid": current_user.user_id}
         )
         await session.commit()
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         await write_audit_log(db, current_user.user_id, "password_change", "user", current_user.user_id)
     return {"status": "password_updated"}
 
@@ -1196,7 +1434,7 @@ async def get_settings(
     request: Request,
     current_user: User = Depends(get_current_active_user),
 ):
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         return await get_platform_settings(db)
 
 
@@ -1207,6 +1445,14 @@ async def update_settings(
     body: dict,
     current_user: User = Depends(require_admin),
 ):
+    # SSRF guard for Slack Webhook URL if present in body
+    webhook = body.get("SLACK_WEBHOOK_URL")
+    if webhook:
+        try:
+            await assert_safe_url(webhook)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+            
     from sqlalchemy import text
     async with AsyncSessionLocal() as session:
         await session.execute(
@@ -1260,42 +1506,62 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4001)
         return
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        if not payload.get("sub"):
-            log.warning("ws.auth_failed.no_sub")
-            await websocket.close(code=4001)
-            return
+        from .security import verify_token
+        token_data = await verify_token(token, redis_pool)
+        
+        # Construct payload for compatibility
+        payload = {
+            "sub": token_data.username,
+            "role": token_data.role,
+            "jti": token_data.jti,
+            "exp": token_data.exp
+        }
+            
     except Exception as exc:
         log.warning("ws.auth_failed.invalid_token", error=str(exc))
         await websocket.close(code=4001)
         return
 
-    await ws_manager.connect(websocket)
+    # Pass payload into connect for connection limits and role metadata
+    success = await ws_manager.connect(websocket, payload)
+    if not success:
+        await websocket.close(code=4008)  # Policy Violation / Too many conns
+        return
+        
     try:
         while True:
             try:
-                # 35s timeout to catch disconnected clients without heartbeats
+                # 35s timeout to catch disconnected clients.
+                # Client pings every 30s.
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=35.0)
                 
-                # Handle control messages
                 if data == "ping":
                     await websocket.send_json({"type": "pong"})
                     continue
                 
-                # In this app, client doesn't send data yet, but we'll log it if they do
-                log.debug("ws.message_received", data=data[:100])
+                # Skip debug logging of raw websocket messages
+                pass
                 
             except asyncio.TimeoutError:
-                # Proactively ping the client if they've been silent
+                # Still alive but quiet. Probe with a ping.
                 try:
                     await websocket.send_json({"type": "ping"})
+                    # If send fails, it'll raise an Exception caught below
                 except Exception:
                     break
+            except WebSocketDisconnect as exc:
+                # Normal or abnormal closure from client side
+                log.info("ws.disconnected_client", 
+                         user=payload.get("sub"), 
+                         code=exc.code, 
+                         reason=exc.reason or "no reason")
+                break
             except Exception as exc:
+                # Unexpected read error
                 log.error("ws.read_failed", error=str(exc))
                 break
-    except WebSocketDisconnect:
-        pass
+    except Exception as exc:
+        log.error("ws.endpoint_failed", error=str(exc))
     finally:
         ws_manager.disconnect(websocket)
 
@@ -1303,10 +1569,12 @@ async def websocket_endpoint(websocket: WebSocket):
 # ─── API versioning stubs ─────────────────────────────────────────────────────
 
 @app.get("/api/v2/services", tags=["v2"])
-async def list_services_v2(current_user: User = Depends(get_current_active_user)):
+async def list_services_v2(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
     """V2 stub — same as v1 for now."""
-    async for db in get_db():
-        return await get_all_services(db)
+    return await get_all_services(db)
 
 
 # ─── Recent anomalies (overview) ──────────────────────────────────────────────
@@ -1317,9 +1585,9 @@ async def get_recent_anomalies_endpoint(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    async for db in get_db():
-        return await get_recent_anomalies(db, limit)
+    return await get_recent_anomalies(db, limit)
 
 
 # ─── POSTMORTEM endpoints ─────────────────────────────────────────────────────
@@ -1330,26 +1598,26 @@ async def trigger_postmortem_generation(
     request: Request,
     incident_id: str,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Trigger post-mortem generation. NO body. Same pattern as /rca/generate."""
-    async for db in get_db():
-        incident = await get_incident_by_id(db, incident_id)
-        if not incident:
-            raise HTTPException(status_code=404, detail="Incident not found")
-        if incident["status"] != "resolved":
-            raise HTTPException(
-                status_code=400,
-                detail="Post-mortems can only be generated for resolved incidents",
-            )
-        loop = asyncio.get_event_loop()
-        loop.create_task(_postmortem_job_dispatch(
-            incident_id,
+    incident = await get_incident_by_id(db, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident["status"] != "resolved":
+        raise HTTPException(
+            status_code=400,
+            detail="Post-mortems can only be generated for resolved incidents",
+        )
+    loop = asyncio.get_event_loop()
+    loop.create_task(_postmortem_job_dispatch(
+        incident_id,
             current_user.username,
         ))
-        return {
-            "status": "generating",
-            "message": "Post-mortem generation started",
-        }
+    return {
+        "status": "generating",
+        "message": "Post-mortem generation started",
+    }
 
 
 async def _postmortem_job_dispatch(incident_id: str, generated_by: str) -> None:
@@ -1372,7 +1640,7 @@ async def get_postmortem(
     try:
         job_data = await r.get(job_key)
         if not job_data:
-            async for db in get_db():
+            async with AsyncSessionLocal() as db:
                 pm = await get_postmortem_from_db(db, incident_id)
                 if pm:
                     return {
@@ -1392,7 +1660,7 @@ async def export_postmortem(
     incident_id: str,
     current_user: User = Depends(get_current_active_user),
 ) -> FastAPIResponse:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         pm = await get_postmortem_from_db(db, incident_id)
         if not pm:
             raise HTTPException(status_code=404, detail="Post-mortem not found")
@@ -1428,7 +1696,7 @@ async def create_deployment(
     deployment_id = f"dep-{_uuid4().hex[:8]}"
     deployed_at = body.deployed_at or datetime.now(timezone.utc)
 
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         # Validate service exists first
         svc = await get_service_by_id(db, body.service_id)
         if not svc:
@@ -1500,7 +1768,7 @@ async def get_deployments_for_service(
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_active_user),
 ) -> list[dict[str, Any]]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         return await get_service_deployments(db, service_id, limit)
 
 
@@ -1511,7 +1779,7 @@ async def list_all_deployments(
     limit: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(get_current_active_user),
 ) -> list[dict[str, Any]]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         return await get_all_deployments(db, limit)
 
 
@@ -1533,11 +1801,15 @@ async def list_slos(
     service_id: Optional[str] = Query(default=None),
     current_user: User = Depends(get_current_active_user),
 ) -> list[dict[str, Any]]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         slos = await get_all_active_slos(db, service_id)
+        
+        # Optimize: Calculate compliance in parallel
+        tasks = [calculate_slo_compliance(db, slo) for slo in slos]
+        compliances = await asyncio.gather(*tasks)
+        
         result = []
-        for slo in slos:
-            compliance = await calculate_slo_compliance(db, slo)
+        for slo, compliance in zip(slos, compliances):
             result.append({**slo, **compliance})
         return result
 
@@ -1550,7 +1822,7 @@ async def get_slo_history(
     days: int = Query(default=30, ge=1, le=365),
     current_user: User = Depends(get_current_active_user),
 ) -> list[dict[str, Any]]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         return await get_slo_snapshots(db, slo_id, days)
 
 
@@ -1562,7 +1834,7 @@ async def create_slo(
     current_user: User = Depends(require_admin),
 ) -> dict[str, Any]:
     slo_id = f"slo-{_uuid4().hex[:8]}"
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         try:
             await save_slo(db, {
                 "slo_id": slo_id,
@@ -1588,7 +1860,7 @@ async def deactivate_slo(
     slo_id: str,
     current_user: User = Depends(require_admin),
 ) -> dict[str, str]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         await set_slo_inactive(db, slo_id)
         return {"status": "deactivated"}
 
@@ -1602,7 +1874,7 @@ async def get_anomaly_explanation(
     anomaly_id: str,
     current_user: User = Depends(get_current_active_user),
 ) -> dict[str, Any]:
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         anomaly = await get_anomaly_by_id(db, anomaly_id)
         if not anomaly:
             raise HTTPException(status_code=404, detail="Anomaly not found")

@@ -51,7 +51,7 @@ export function Sidebar() {
   const isWarRoom = pathname.startsWith('/incidents/') && pathname !== '/incidents'
 
   useEffect(() => {
-    if (!user && document.cookie.includes('access_token')) {
+    if (!user && document.cookie.includes('sentinel_session')) {
       apiClient.me().then(res => {
         setUser(res.data)
       }).catch(() => {
@@ -74,7 +74,7 @@ export function Sidebar() {
       layout
       animate={{ width: w }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="hidden lg:flex flex-col h-screen flex-shrink-0 bg-surface py-8 z-50 overflow-hidden"
+      className="hidden lg:flex flex-col h-screen flex-shrink-0 bg-surface py-8 z-50"
     >
       <div className="px-8 mb-12 flex justify-between items-center">
         {!sidebarCollapsed && (

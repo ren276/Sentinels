@@ -75,10 +75,10 @@ export interface User {
   is_active: boolean
   provider?: string
   avatar_url?: string
-  created_at: string
-  last_login: string | null
-  failed_login_attempts: number
-  locked_until: string | null
+  created_at?: string
+  last_login?: string | null
+  failed_login_attempts?: number
+  locked_until?: string | null
 }
 
 export interface Token {

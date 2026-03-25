@@ -33,13 +33,7 @@ class MockCollector:
         timestamp: datetime | None = None,
     ) -> None:
         ts = timestamp or datetime.now(timezone.utc)
-        log.debug(
-            "mock_collector.metric",
-            service_id=service_id,
-            metric=metric_name,
-            value=value,
-            ts=ts.isoformat(),
-        )
+        pass
 
     async def close(self) -> None:
         pass

@@ -21,8 +21,12 @@ from .config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     connect_args={"statement_cache_size": 0},
-    pool_size=10,
-    max_overflow=20,
+    # Supabase free-tier Session-mode pooler caps connections at ~10.
+    # Keep pool_size + max_overflow well below that limit.
+    pool_size=3,
+    max_overflow=2,
+    pool_timeout=30,
+    pool_recycle=300,   # recycle connections every 5 min to avoid stale handles
     pool_pre_ping=True,
     echo=False,
 )
@@ -46,7 +50,7 @@ CREATE TABLE IF NOT EXISTS services (
     service_id    VARCHAR PRIMARY KEY,
     name          VARCHAR NOT NULL,
     environment   VARCHAR DEFAULT 'production',
-    version       VARCHAR DEFAULT '1.0.0',
+    version       VARCHAR DEFAULT '1.0',
     health_status VARCHAR DEFAULT 'healthy',
     tags          JSONB DEFAULT '{}',
     created_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -129,7 +133,9 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     last_login    TIMESTAMPTZ,
     failed_login_attempts INT DEFAULT 0,
-    locked_until  TIMESTAMPTZ
+    locked_until  TIMESTAMPTZ,
+    reset_token_hash VARCHAR,
+    reset_token_expires TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -327,20 +333,32 @@ async def create_oauth_user(
     name: str,
     provider: str,
     role: str = "viewer",
+    user_id: str = None,
 ) -> dict:
     import uuid
-    user_id = str(uuid.uuid4())
+    user_id = user_id or str(uuid.uuid4())
     hp = "oauth_no_password"
+    # ON CONFLICT (email) keeps existing user row intact but updates
+    # oauth metadata. This prevents repeat GitHub/OAuth logins from
+    # crashing with a UniqueViolation → silent 401.
     await db.execute(
         text("""
             INSERT INTO users (user_id, username, email, hashed_password, role, display_name, oauth_provider)
             VALUES (:uid, :username, :email, :hp, :role, :name, :provider)
+            ON CONFLICT (email) DO UPDATE SET
+                oauth_provider = EXCLUDED.oauth_provider,
+                display_name   = COALESCE(EXCLUDED.display_name, users.display_name),
+                last_login     = NOW()
         """),
         {"uid": user_id, "username": username[:50],
          "email": email[:255], "hp": hp,
          "role": role, "name": name[:255], "provider": provider}
     )
     await db.commit()
+    # Fetch by email — the row might be the original one (via ON CONFLICT update)
+    existing = await get_user_by_email(db, email)
+    if existing:
+        return existing
     return await get_user_by_id(db, user_id)
 
 
@@ -358,7 +376,13 @@ async def get_all_services(db: AsyncSession) -> list[dict]:
                       END 
                     LIMIT 1), 
                    'healthy'
-               ) as health_status
+               ) as health_status,
+               (SELECT JSON_BUILD_OBJECT(
+                   'latency_ms', MAX(CASE WHEN metric_name = 'p95_latency_ms' THEN value ELSE 0 END),
+                   'error_rate', MAX(CASE WHEN metric_name = 'error_rate' THEN value ELSE 0 END),
+                   'cpu_percent', MAX(CASE WHEN metric_name = 'cpu_usage' THEN value ELSE 0 END),
+                   'uptime_percent', MAX(CASE WHEN metric_name = 'uptime' THEN value ELSE 99.9 END)
+                ) FROM metrics m WHERE m.service_id = s.service_id AND m.timestamp > NOW() - INTERVAL '5 minutes') as live_metrics
         FROM services s
         ORDER BY s.name
     """))

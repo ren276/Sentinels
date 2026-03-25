@@ -87,8 +87,8 @@ async def seed_database() -> None:
         """), {
             "uid1": str(uuid.uuid4()),
             "uid2": str(uuid.uuid4()),
-            "hp_admin": hash_password("Sentinel@Admin1"),
-            "hp_viewer": hash_password("Sentinel@View1"),
+            "hp_admin": hash_password("Sentinel#2026!Admin"),
+            "hp_viewer": hash_password("Sentinel#2026!View"),
         })
 
         # ── Services ───────────────────────────────────────────────────────────

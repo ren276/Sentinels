@@ -9,15 +9,25 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Request: add auth header from cookie
-api.interceptors.request.use((config) => {
-  // Cookies handled by withCredentials; but also support
-  // explicit token for SSR fallback
-  if (typeof document !== 'undefined') {
-    const match = document.cookie.match(/access_token=([^;]+)/)
-    if (match) {
-      config.headers.Authorization = `Bearer ${match[1]}`
+import Cookies from 'js-cookie'
+import { supabase } from './supabase'
+
+// Request: add auth header
+api.interceptors.request.use(async (config) => {
+  // browser might block cookies in cross-origin dev env (localhost vs 127.0.0.1)
+  // so we manually add the token as a fallback.
+  let token = Cookies.get('sentinel_session')
+  
+  // Fallback to supabase session directly (stores in localStorage)
+  if (!token) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) {
+      token = session.access_token
     }
+  }
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
@@ -36,6 +46,9 @@ api.interceptors.response.use(
       try {
         const refreshUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/v1/auth/refresh`
         const refreshToken = localStorage.getItem('refresh_token')
+        if (!refreshToken) {
+          throw new Error('No refresh token available')
+        }
         
         const res = await axios.post(
           refreshUrl,
@@ -44,7 +57,7 @@ api.interceptors.response.use(
         )
 
         if (res.data?.access_token) {
-          document.cookie = `access_token=${res.data.access_token}; path=/; max-age=3600; SameSite=Lax`
+          // No need to set cookie here, server sets sentinel_session HTTPOnly.
           if (res.data.refresh_token) {
              localStorage.setItem('refresh_token', res.data.refresh_token)
           }
@@ -84,9 +97,7 @@ export const apiClient = {
   // Auth
   login: async (username: string, password: string) => {
     const res = await api.post('/api/v1/auth/login', { username, password })
-    if (res.data?.access_token) {
-      document.cookie = `access_token=${res.data.access_token}; path=/; max-age=3600; SameSite=Lax`
-    }
+    // server will set 'sentinel_session' cookie via Set-Cookie header.
     return res
   },
   register: (body: any) => api.post('/api/v1/auth/register', body),

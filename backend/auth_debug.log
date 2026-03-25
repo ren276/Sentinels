@@ -1,0 +1,80 @@
+--- Auth Attempt at 2026-03-25 23:33:12.264637 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:33:12.271247 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:33:13.995058 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:33:14.016164 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:33:19.120987 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:33:19.131200 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:34:46.044024 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:34:46.144218 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:34:51.897754 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:34:51.914645 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:03.540813 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:03.549749 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:07.134511 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:07.140556 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:20.061628 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token
+--- Auth Attempt at 2026-03-25 23:38:20.082449 ---
+Cookies: {}
+Headers: {'host': '127.0.0.1:8000', 'connection': 'keep-alive', 'sec-ch-ua-platform': '"Windows"', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', 'accept': 'application/json, text/plain, */*', 'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Brave";v="146"', 'sec-ch-ua-mobile': '?0', 'sec-gpc': '1', 'accept-language': 'en-US,en;q=0.8', 'origin': 'http://localhost:3000', 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty', 'sec-fetch-storage-access': 'none', 'referer': 'http://localhost:3000/', 'accept-encoding': 'gzip, deflate, br, zstd'}
+Token from cookie: None...
+Result: 401 Missing Token

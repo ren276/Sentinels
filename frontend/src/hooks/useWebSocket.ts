@@ -13,24 +13,32 @@ export function useWebSocket() {
   const { user } = useAuthStore()
   const { setConnected, addAnomaly, addIncident, updateRca, updateMetrics } = useWsStore()
 
-  const connect = useCallback(() => {
-    const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws/live'
+  const connect = useCallback(async () => {
+    const baseWsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8000/ws/live'
     
-    // Get token from cookie
+    // 1. Try cookie
     let token = ''
     if (typeof document !== 'undefined') {
-      const match = document.cookie.match(/access_token=([^;]+)/)
+      const match = document.cookie.match(/sentinel_session=([^;]+)/)
       if (match) token = match[1]
     }
 
+    // 2. Try Supabase session (localStorage fallback)
     if (!token) {
-      console.warn('[WS] No access token found in cookies. Aborting connection.')
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        token = session.access_token
+      }
+    }
+
+    if (!token) {
+      console.warn('[WS] No access token found. Aborting connection.')
       setConnected(false)
       return
     }
 
     try {
-      console.log('[WS] Connecting to:', baseWsUrl)
       const wsUrl = `${baseWsUrl}?token=${token}`
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws

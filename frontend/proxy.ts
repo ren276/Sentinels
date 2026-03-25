@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/api/auth']
+const PUBLIC_PATHS = ['/login', '/api/auth', '/auth/callback', '/auth/']
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -16,8 +16,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for access token cookie
-  const token = request.cookies.get('access_token')
+  // Check for sentinel_session cookie (set by backend on login)
+  const token = request.cookies.get('sentinel_session')
   if (!token) {
     const url = new URL('/login', request.url)
     url.searchParams.set('from', pathname)

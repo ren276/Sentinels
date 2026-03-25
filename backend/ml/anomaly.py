@@ -290,8 +290,8 @@ async def run_combined_detection(
             shap_explanation = explanation_list
             if explanation_list:
                 top_contributor = explanation_list[0]["feature"]
-        except Exception as shap_exc:
-            log.debug("shap.explanation_failed", error=str(shap_exc))
+        except Exception:
+            pass
 
     result = {
         "anomaly_id": str(uuid.uuid4()),

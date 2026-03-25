@@ -4,10 +4,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertCircle, Loader2, Eye, EyeOff, ArrowRight, Lock, Mail, Check, Shield } from 'lucide-react'
+import Cookies from 'js-cookie'
 import { apiClient } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/authStore'
 import { useCursorStore } from '@/store/cursorStore'
 import { useQuery } from '@tanstack/react-query'
+import { StatusDot } from '@/components/ui/StatusDot'
 
 export default function LoginPage() {
   const [activeTab, setActiveTab] = useState<'signin' | 'create'>('signin')
@@ -57,33 +60,100 @@ export default function LoginPage() {
 
     try {
       if (activeTab === 'signin') {
-        await apiClient.login(username, password)
-        const { data: user } = await apiClient.me()
-        setUser(user)
-        window.location.href = '/'
+        let loggedInLocal = false;
+        
+        // 1. Try local FastAPI backend first (handles seeded 'admin' and 'viewer' accounts)
+        try {
+            const loginRes = await apiClient.login(username, password)
+            if (loginRes.status === 200) {
+                loggedInLocal = true
+                if (loginRes.data?.access_token) {
+                    Cookies.set('sentinel_session', loginRes.data.access_token, { 
+                        expires: 1/24,
+                        path: '/',
+                        secure: process.env.NODE_ENV === 'production',
+                        sameSite: 'Lax'
+                    })
+                }
+                const userRes = await apiClient.me()
+                setUser(userRes.data)
+                
+                // The backend automatically sets the HTTPOnly 'sentinel_session' cookie.
+                if (loginRes.data?.refresh_token) {
+                    localStorage.setItem('refresh_token', loginRes.data.refresh_token)
+                }
+                
+                window.location.href = '/'
+                return
+            }
+        } catch (e: any) {
+             if (e.response?.status === 423) {
+                 setError({ type: 'locked', msg: 'Account temporarily locked.', unlockIn: 900 })
+                 return
+             }
+             // Otherwise, fallback to Supabase
+        }
+
+        // 2. Fallback to Supabase
+        if (!loggedInLocal) {
+            const { data, error: authError } = await supabase.auth.signInWithPassword({
+              email: username.includes('@') ? username : `${username}@placeholder.com`,
+              password,
+            })
+            if (authError) throw authError
+            
+            if (data.user && data.session) {
+                Cookies.set('sentinel_session', data.session.access_token, { 
+                    expires: 1/24,
+                    path: '/',
+                    secure: process.env.NODE_ENV === 'production',
+                    sameSite: 'Lax'
+                })
+    
+                setUser({
+                    user_id: data.user.id,
+                    username: data.user.email?.split('@')[0] || 'user',
+                    email: data.user.email || '',
+                    role: 'viewer',
+                    is_active: true
+                })
+                
+                if (data.session.refresh_token) {
+                  localStorage.setItem('refresh_token', data.session.refresh_token)
+                }
+                
+                window.location.href = '/'
+            }
+        }
       } else {
-        await apiClient.register({ username, email, password })
+        const { error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { username }
+          }
+        })
+        if (authError) throw authError
         setActiveTab('signin')
-        alert('CHECK YOUR EMAIL')
+        alert('Check your email for confirmation')
       }
     } catch (err: any) {
-      const status = err.response?.status
-      if (status === 401) {
-        setError({ type: 'invalid', msg: 'Invalid credentials. Access denied.' })
-      } else if (status === 429 || status === 423) {
-        setError({ type: 'locked', msg: 'Try again in', unlockIn: 60 })
-      } else if (!status) {
-        setError({ type: 'network', msg: 'Cannot reach sentinel backend.' })
-      } else {
-        setError({ type: 'invalid', msg: err.response?.data?.detail || 'Authentication failed.' })
-      }
+      setError({ type: 'invalid', msg: err.message || 'Authentication failed.' })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleOAuthLogin = (provider: string) => {
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/auth/${provider}`
+  const handleOAuthLogin = async (provider: 'github') => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
+    })
+    if (error) {
+        setError({ type: 'invalid', msg: error.message })
+    }
   }
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -132,14 +202,14 @@ export default function LoginPage() {
         
         {/* Interactive Mouse Pulse */}
         <motion.div 
-          className="absolute w-[600px] h-[600px] rounded-full pointer-events-none z-0 blur-[120px]"
+          className="absolute w-[600px] h-[600px] rounded-full pointer-events-none z-0 blur-[180px] opacity-40"
           animate={{
             x: mousePos.x - 300,
             y: mousePos.y - 300,
           }}
-          transition={{ type: 'spring', damping: 30, stiffness: 200, mass: 0.5 }}
+          transition={{ type: 'spring', damping: 40, stiffness: 150, mass: 1 }}
           style={{
-            background: 'radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(0, 240, 255, 0.1) 0%, transparent 70%)',
           }}
         />
 
@@ -149,7 +219,7 @@ export default function LoginPage() {
           </div>
           <div>
             <h1 className="font-mono text-[14px] tracking-[0.4em] text-primary uppercase font-bold">SENTINEL_OS</h1>
-            <p className="text-[8px] font-mono text-on-surface-variant/40 tracking-[0.2em]">KRNL_VER: 4.2.0-GENESIS</p>
+            <p className="text-[8px] font-mono text-on-surface-variant/40 tracking-[0.2em]">VERSION: 1.0 // Created by Sandesh Verma</p>
           </div>
         </div>
 
@@ -157,24 +227,30 @@ export default function LoginPage() {
           <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.1 }}>Secure.</motion.div>
           <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.2 }} className="ml-12 text-on-surface/20">Predictive.</motion.div>
           <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.8, delay: 0.3 }} className="ml-6 text-glow">Unyielding.</motion.div>
+        </div>
 
-          {/* Floating Stat Chips */}
-          <div className="mt-16 grid grid-cols-2 gap-4 max-w-sm">
-            <div className="bg-surface-container-high/40 backdrop-blur-xl p-4 glow-border flex flex-col gap-1">
-              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest">Uptime</span>
-              <span className="text-xl font-mono text-primary">99.998%</span>
+        {/* Floating Stat Chips */}
+        <div className="mt-16 grid grid-cols-2 gap-4 max-w-sm relative z-10" style={{ isolation: 'isolate' }}>
+          <div className="bg-surface-container-high/60 p-4 glow-border flex flex-col gap-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest leading-none">Uptime</span>
+              <StatusDot status="healthy" size={6} />
             </div>
-            <div className="bg-surface-container-high/40 backdrop-blur-xl p-4 border border-outline-variant/20 flex flex-col gap-1">
-              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest">Latency</span>
-              <span className="text-xl font-mono text-on-surface">14ms</span>
+            <span className="text-xl font-mono text-primary font-bold leading-none tracking-normal">99.998%</span>
+          </div>
+          <div className="bg-surface-container-high/60 p-4 glow-border flex flex-col gap-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-mono text-on-surface-variant uppercase tracking-widest leading-none">Latency</span>
+              <StatusDot status="healthy" size={6} />
             </div>
+            <span className="text-xl font-mono text-on-surface font-bold leading-none tracking-normal">14ms</span>
           </div>
         </div>
 
         <div className="relative z-10 flex justify-between items-end">
           <div className="space-y-1">
             <p className="font-mono text-[10px] text-primary uppercase tracking-[0.2em] font-bold">NEURAL_SHIELD_ACTIVE</p>
-            <p className="font-mono text-[9px] text-on-surface-variant/40 uppercase">Encrypted Handshake Protocol v2.4</p>
+            <p className="font-mono text-[9px] text-on-surface-variant/40 uppercase">Created by Sandesh Verma — Sentinel v1.0</p>
           </div>
           <div className="font-mono text-[10px] text-on-surface-variant/40">© 2026 SENTINEL_CORP</div>
         </div>
@@ -210,14 +286,13 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 mb-8">
-                  {['github', 'google', 'microsoft'].map(provider => {
-                    const enabled = settings?.[`${provider}_enabled`] !== false
+                <div className="grid grid-cols-1 gap-3 mb-8">
+                  {['github'].map(provider => {
+                    const enabled = true // GitHub is now the only one enabled
                     return (
-                      <button key={provider} disabled={!enabled} title={!enabled ? "Configure in Settings → Integrations" : ""} onClick={() => handleOAuthLogin(provider)} className={`flex items-center justify-center py-3 bg-transparent transition-all group ghost-border ${enabled ? 'hover:bg-surface-container-low cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                      <button key={provider} onClick={() => handleOAuthLogin('github')} className={`flex items-center justify-center py-3 bg-transparent transition-all group ghost-border hover:bg-surface-container-low cursor-pointer`}>
                         {provider === 'github' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>}
-                        {provider === 'google' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M12.48 10.92V14.5h6.64c-.28 1.57-1.74 4.59-6.64 4.59-4.22 0-7.66-3.48-7.66-7.79s3.44-7.79 7.66-7.79c2.4 0 4 .99 4.92 1.87l2.79-2.79C18.4 1.03 15.63 0 12.48 0 5.58 0 0 5.58 0 12.48s5.58 12.48 12.48 12.48c7.2 0 12-5.06 12-12.2 0-.82-.09-1.44-.21-2.07l-11.79.01z"></path></svg>}
-                        {provider === 'microsoft' && <svg className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface" fill="currentColor" viewBox="0 0 24 24"><path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"></path></svg>}
+                        <span className="ml-3 font-sans text-sm font-medium">Continue with GitHub</span>
                       </button>
                     )
                   })}
@@ -278,7 +353,7 @@ export default function LoginPage() {
               </motion.div>
             ) : (
               <motion.div key="create" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
-                {settings?.ALLOW_SELF_SIGNUP === false ? (
+                {false ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
                     <div className="w-16 h-16 rounded-full bg-surface-container-highest flex items-center justify-center mb-6 text-on-surface-variant"><Lock size={32} /></div>
                     <h2 className="text-lg font-mono tracking-tight text-on-surface mb-2">ACCOUNT CREATION RESTRICTED</h2>

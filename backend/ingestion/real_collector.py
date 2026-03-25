@@ -15,19 +15,29 @@ import structlog
 
 log = structlog.get_logger()
 
-async def ensure_service_exists(service_id: str, name: str, environment: str = "production", tags: dict = None) -> None:
+async def ensure_service_exists(session, service_id: str, name: str, environment: str = "production", tags: dict = None) -> None:
     import json
     tags_json = json.dumps(tags or {})
-    async with AsyncSessionLocal() as session:
+    await session.execute(
+        text("""
+            INSERT INTO services (service_id, name, environment, tags)
+            VALUES (:sid, :name, :env, CAST(:tags AS jsonb))
+            ON CONFLICT (service_id) DO NOTHING
+        """),
+        {"sid": service_id, "name": name, "env": environment, "tags": tags_json}
+    )
+
+async def write_metrics_batch_session(session, service_id: str, metrics: dict, timestamp: datetime) -> None:
+    for metric_name, value in metrics.items():
+        if value is None:
+            continue
         await session.execute(
             text("""
-                INSERT INTO services (service_id, name, environment, tags)
-                VALUES (:sid, :name, :env, CAST(:tags AS jsonb))
-                ON CONFLICT (service_id) DO NOTHING
+                INSERT INTO metrics (service_id, metric_name, value, timestamp)
+                VALUES (:sid, :mname, :val, :ts)
             """),
-            {"sid": service_id, "name": name, "env": environment, "tags": tags_json}
+            {"sid": service_id, "mname": metric_name, "val": float(value), "ts": timestamp}
         )
-        await session.commit()
 
 async def write_metrics_batch(service_id: str, metrics: dict, timestamp: datetime) -> None:
     async with AsyncSessionLocal() as session:
@@ -177,9 +187,9 @@ async def collect_docker_metrics() -> list[dict]:
                 mem_pct = (mem["usage"] / mem["limit"]) if mem.get("limit") else 0.0
                 
                 service_id = f"docker-{container.name}"
-                await ensure_service_exists(service_id, container.name, environment="docker")
                 metrics.append({
                     "service_id": service_id,
+                    "name": container.name,
                     "cpu_usage": float(cpu_pct),
                     "mem_usage": float(mem_pct),
                     "error_rate": 0.0 if container.status == "running" else 1.0,
@@ -195,39 +205,63 @@ async def collect_docker_metrics() -> list[dict]:
 async def real_metrics_collection_job() -> None:
     now = datetime.now(timezone.utc)
     
-    # Ensure standard services exist
-    await ensure_service_exists("system-host", "Host System", "system")
-    await ensure_service_exists("sentinel-api", "Sentinel API", "self")
-    await ensure_service_exists("redis-local", "Redis", "redis")
-    await ensure_service_exists("postgres-local", "PostgreSQL", "postgres")
+    # 1. Parallel metric collection
+    try:
+        results = await asyncio.wait_for(asyncio.gather(
+            collect_system_metrics(),
+            collect_http_metrics("sentinel-api", "http://127.0.0.1:8000/health"),
+            collect_redis_metrics(),
+            collect_postgres_metrics(),
+            collect_docker_metrics(),
+            get_custom_http_services(),
+        ), timeout=8.0)
+        
+        sys_m, api_m, redis_m, pg_m, docker_results, custom_services = results
+    except Exception as exc:
+        log.error("real_metrics.gather_failed", error=str(exc))
+        return
 
-    # 1. System host metrics
-    sys_metrics = await collect_system_metrics()
-    await write_metrics_batch("system-host", sys_metrics, now)
+    # 2. Parallel custom service checks
+    custom_results = []
+    if custom_services:
+        try:
+            custom_results = await asyncio.wait_for(asyncio.gather(*[
+                collect_http_metrics(
+                    svc["service_id"], svc["url"], 
+                    svc.get("expected_status_code", 200), 
+                    svc.get("timeout_seconds", 5)
+                ) for svc in custom_services
+            ]), timeout=5.0)
+        except Exception as exc:
+            log.warning("real_metrics.custom_failed", error=str(exc))
 
-    # 2. Sentinel Self-Monitoring
-    api_metrics = await collect_http_metrics("sentinel-api", "http://127.0.0.1:8000/health")
-    await write_metrics_batch("sentinel-api", api_metrics, now)
+    # 3. Batch persistence
+    async with AsyncSessionLocal() as session:
+        try:
+            # Main services
+            for sid, name, env, m in [
+                ("system-host", "Host System", "system", sys_m),
+                ("sentinel-api", "Sentinel API", "self", api_m),
+                ("redis-local", "Redis", "redis", redis_m),
+                ("postgres-local", "PostgreSQL", "postgres", pg_m),
+            ]:
+                await ensure_service_exists(session, sid, name, env)
+                await write_metrics_batch_session(session, sid, m, now)
 
-    # 3. Redis metrics
-    redis_metrics = await collect_redis_metrics()
-    await write_metrics_batch("redis-local", redis_metrics, now)
+            # Custom & Docker
+            for i, svc in enumerate(custom_services):
+                if i < len(custom_results):
+                    await ensure_service_exists(session, svc["service_id"], svc["name"], "http")
+                    await write_metrics_batch_session(session, svc["service_id"], custom_results[i], now)
 
-    # 4. Postgres metrics
-    pg_metrics = await collect_postgres_metrics()
-    await write_metrics_batch("postgres-local", pg_metrics, now)
+            for m in docker_results:
+                sid = m.pop("service_id")
+                name = m.pop("name", "container")
+                await ensure_service_exists(session, sid, name, "docker")
+                await write_metrics_batch_session(session, sid, m, now)
 
-    # 5. User-configured HTTP services
-    custom_services = await get_custom_http_services()
-    for svc in custom_services:
-        await ensure_service_exists(svc["service_id"], svc["name"], "http")
-        metrics = await collect_http_metrics(svc["service_id"], svc["url"], svc.get("expected_status_code", 200), svc.get("timeout_seconds", 5))
-        await write_metrics_batch(svc["service_id"], metrics, now)
-
-    # 6. Docker container monitoring
-    docker_metrics = await collect_docker_metrics()
-    for m in docker_metrics:
-        sid = m.pop("service_id")
-        await write_metrics_batch(sid, m, now)
-
-    log.info("real_metrics.collected", services=4 + len(custom_services) + len(docker_metrics))
+            await session.commit()
+            log.info("real_metrics.collected", services=4 + len(custom_results) + len(docker_results))
+        except Exception as exc:
+            await session.rollback()
+            log.error("real_metrics.save_failed", error=str(exc))

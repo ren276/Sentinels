@@ -64,10 +64,10 @@ export function GlobalTools() {
           <AnimatePresence>
             {notifOpen && (
               <motion.div 
-                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.1 } }}
-                className="absolute bottom-full left-0 mb-4 w-80 bg-[#1a1b20] border border-[#3b494b] shadow-2xl z-50 overflow-hidden"
+                initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95, transition: { duration: 0.1 } }}
+                className="absolute bottom-0 left-[calc(100%+1.5rem)] w-72 bg-[#1a1b20]/95 backdrop-blur-md border border-[#00f0ff]/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[100] overflow-hidden rounded-md"
               >
                 <div className="p-3 bg-[#0d0e12] border-b border-[#3b494b]/50 text-[10px] font-mono uppercase tracking-widest text-[#dbfcff] flex justify-between items-center">
                   <span>System Alerts</span>

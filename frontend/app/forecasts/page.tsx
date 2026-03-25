@@ -96,7 +96,7 @@ export default function ForecastsPage() {
             </div>
 
             <div className="h-48 w-full mt-4">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <ComposedChart data={group.data} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_THEME.grid} />
                   <XAxis 

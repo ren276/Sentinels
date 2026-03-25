@@ -9,6 +9,7 @@ from sqlalchemy import text
 async def reset():
     async with AsyncSessionLocal() as db:
         await db.execute(text("UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE username = 'admin'"))
+        
         await db.commit()
     print('Admin account reset successfully.')
 
